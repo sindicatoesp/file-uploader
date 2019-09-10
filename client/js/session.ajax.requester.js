@@ -32,7 +32,7 @@ qq.SessionAjaxRequester = function(spec) {
             try {
                 response = qq.parseJson(xhrOrXdr.responseText);
             }
-            catch(err) {
+            catch (err) {
                 options.log("Problem parsing session response: " + err.message, "error");
                 isError = true;
             }
@@ -41,11 +41,12 @@ qq.SessionAjaxRequester = function(spec) {
         options.onComplete(response, !isError, xhrOrXdr);
     }
 
-    requester = new qq.AjaxRequester({
+    requester = qq.extend(this, new qq.AjaxRequester({
+        acceptHeader: "application/json",
         validMethods: ["GET"],
         method: "GET",
         endpointStore: {
-            getEndpoint: function() {
+            get: function() {
                 return options.endpoint;
             }
         },
@@ -53,20 +54,17 @@ qq.SessionAjaxRequester = function(spec) {
         log: options.log,
         onComplete: onComplete,
         cors: options.cors
-    });
-
+    }));
 
     qq.extend(this, {
         queryServer: function() {
             var params = qq.extend({}, options.params);
 
-            // cache buster, particularly for IE & iOS
-            params.qqtimestamp = new Date().getTime();
-
             options.log("Session query request.");
 
             requester.initTransport("sessionRefresh")
                 .withParams(params)
+                .withCacheBuster()
                 .send();
         }
     });

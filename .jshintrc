@@ -31,7 +31,7 @@
     "eqeqeq"        : true,     // Require triple equals i.e. `===`.
     "forin"         : true,     // Tolerate `for in` loops without `hasOwnPrototype`.
     "immed"         : true,     // Require immediate invocations to be wrapped in parens e.g. `( function(){}() );`
-    "latedef"       : true,     // Prohibit variable use before definition.
+    "latedef"       : false,     // Prohibit variable use before definition.
     "newcap"        : true,     // Require capitalization of all constructor functions e.g. `new F()`.
     "noarg"         : true,     // Prohibit use of `arguments.caller` and `arguments.callee`.
     "noempty"       : true,     // Prohibit use of empty blocks.
@@ -52,7 +52,7 @@
     "asi"           : false,    // Tolerate Automatic Semicolon Insertion (no semicolons).
     "boss"          : false,    // Tolerate assignments inside if, for & while. Usually conditions & loops are for comparison, not assignments.
     "debug"         : false,    // Allow debugger statements e.g. browser breakpoints.
-    "eqnull"        : false,    // Tolerate use of `== null`.
+    "eqnull"        : true,    // Tolerate use of `== null`.
     "esnext"        : false,    // Allow ES.next specific features such as `const` and `let`.
     "evil"          : false,    // Tolerate use of `eval`.
     "expr"          : true,     // Tolerate `ExpressionStatement` as Programs.
@@ -110,11 +110,7 @@
     // [4]: http://www.jshint.com/options/
 
     "maxerr"        : 100,      // Maximum errors before stopping.
-    "predef"        : [         // Extra globals.
-        //"exampleVar",
-        //"anotherCoolGlobal",
-        //"iLoveDouglas"
-    ],
+    "predef"        : ["qq"],
     "quotmark"      : "double", // Enforces consistencey of quotation marks.
     //"maxlen"        : "80",     // Enfore a maximum line length
     "indent"        : 4         // Specify indentation spacing

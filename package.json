@@ -1,83 +1,68 @@
 {
-  "name": "fineuploader",
+  "name": "fine-uploader",
   "title": "Fine Uploader",
-  "version": "4.2.2",
-  "description": "Multiple file upload component with progress-bar, drag-and-drop, support for all modern browsers.",
-  "main": "./fine-uploader/js/fineuploader.js",
-  "maintainers": [
-    "Ray Nicholus <rnicholus@widen.com>",
-    "Mark Feltner <mfeltner@widen.com>"
-  ],
-  "directories": {
-    "doc": "docs",
-    "test": "test"
-  },
-  "scripts": {
-    "test": "grunt test",
-    "docs": "make docs",
-    "build": "make build"
-  },
+  "main": "lib/traditional.js",
+  "types" : "typescript/fine-uploader.d.ts",
+  "version": "5.16.2",
+  "description": "Multiple file upload plugin with progress-bar, drag-and-drop, direct-to-S3 & Azure uploading, client-side image scaling, preview generation, form support, chunking, auto-resume, and tons of other features.",
   "keywords": [
-    "upload",
-    "file",
+    "amazon",
+    "api",
+    "aws",
+    "azure",
+    "chunk",
     "chunking",
-    "file-uploader"
+    "cross-domain",
+    "cross-site",
+    "drag",
+    "drop",
+    "file",
+    "file-input",
+    "file-uploader",
+    "input",
+    "jquery",
+    "jquery-plugin",
+    "multiple",
+    "preview",
+    "progress",
+    "resume",
+    "s3",
+    "selection",
+    "upload",
+    "widget"
   ],
   "repository": {
     "type": "git",
-    "url": "git://github.com/Widen/fine-uploader.git"
+    "url": "git://github.com/FineUploader/fine-uploader.git"
   },
-  "author": "Widen Enterprises, Inc.",
-  "licenses": [
+  "author": "Ray Nicholus",
+  "contributors": [
     {
-      "type": "GPL 3",
-      "url": "http://www.gnu.org/licenses/gpl-3.0.txt"
-    },
-    {
-      "type": "Widen Commerical License",
-      "url": "http://fineuploader.com/downloads.html"
+      "name": "Ray Nicholus",
+      "url": "http://raynicholus.com"
     }
   ],
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Widen/fine-uploader/issues"
+    "url": "https://github.com/FineUploader/fine-uploader/issues"
   },
   "devDependencies": {
-    "async": "~0.2.9",
-    "grunt-banner": "~0.2.0",
-    "grunt-bower-task": "0.3.2",
-    "grunt-coffeelint": "0.0.7",
-    "grunt-concurrent": "~0.3.1",
-    "grunt-contrib-clean": "~0.4.1",
-    "grunt-contrib-compress": "~0.5.2",
-    "grunt-contrib-concat": "~0.3.0",
-    "grunt-contrib-connect": "~0.3.0",
-    "grunt-contrib-copy": "~0.4.1",
-    "grunt-contrib-cssmin": "~0.6.1",
-    "grunt-contrib-jshint": "~0.7.1",
-    "grunt-contrib-uglify": "~0.2.2",
-    "grunt-contrib-watch": "~0.4.4",
-    "grunt-karma": "~0.6.2",
-    "grunt-open": "~0.2.2",
-    "grunt-shell": "~0.3.1",
-    "grunt-strip-code": "~0.1.2",
-    "grunt-version": "~0.2.2",
-    "karma-mocha": "~0.1.0",
-    "karma-slimerjs-launcher": "~0.1.2",
-    "karma-opera-launcher": "~0.1.0",
-    "karma-safari-launcher": "~0.1.1",
-    "karma-ievms": "0.0.4"
+    "clean-css-cli": "4.0.8",
+    "jscs": "3.0.7",
+    "jshint": "2.9.4",
+    "karma": "1.5.0",
+    "karma-firefox-launcher": "1.0.0",
+    "karma-mocha": "1.3.0",
+    "karma-spec-reporter": "0.0.30",
+    "mocha": "3.2.0",
+    "node-static": "0.7.9",
+    "pica": "2.0.8",
+    "uglify-js": "2.8.3"
   },
-  "dependencies": {
-    "bower": "1.2.5",
-    "coffee-script": "~1.6.3",
-    "glob": "~3.2.6",
-    "grunt": "~0.4.1",
-    "karma": "~0.10.9",
-    "optimist": "~0.6.0",
-    "request": "~2.21.0",
-    "semver": "2.0.x",
-    "underscore": "~1.5.2",
-    "uuid": "~1.4.1"
-  },
-  "license": "GPLv3"
+  "scripts": {
+    "build": "make clean; make build-all-ui",
+    "lint": "make lint",
+    "start": "make start-local-dev",
+    "test": "make -i lint && make test"
+  }
 }

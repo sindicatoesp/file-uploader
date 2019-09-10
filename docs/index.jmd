@@ -4,135 +4,81 @@
 {% markdown %}
 
 {{ alert(
-"""Version 4.0 brings some breaking changes.  See the [upgrading to 4.x page](upgrading-to-4.html)
-for help on upgrading from a 3.x version."""
+"""Version 5.0 brings some breaking changes.  See the [upgrading to 5.x page](upgrading-to-5.html)
+for help on upgrading from a 4.x version."""
 )}}
 
 # Documentation Overview {: .page-header }
 
 Welcome to Fine Uploader's documentation. This documentation is divided into
 different parts. It's recommended that you first check out the
-[quickstart](#quickstart) for Fine Uploader. If you’d rather dive into the
+[quickstart](quickstart/01-getting-started.html) for Fine Uploader. If you’d rather dive into the
 internals of Fine Uploader, check out the exhaustive
-[feature reference](#features) or [API documentation](#api-reference).
-For assistance in getting your upload server set up, check out the docs on
-the [server-side](#endpoint-handlers_2).
+Features reference or API documentation (see the navigation menu bar at the top).
+For assistance in getting your upload server set up, check out the docs in
+the Servers section (also available via the navigation menu).
 
-### Getting Started
+## Getting Started
 
 This area of the documentation is mostly prose and examples. It is meant to be
 human-readable and accessible to those looking to get started with Fine Uploader.
 For experts, or developers looking to view more technical documentation, refer
-to the [API docs](#api-reference).
+to the API documentation section.
 
-#### Quickstart
+### Quick-start
 
-##### Traditional Uploader
+#### Traditional / Generic Endpoint Uploader
 
 1. [Getting Started with Fine Uploader](quickstart/01-getting-started.html)
 2. [Setting Fine Uploader options](quickstart/02-setting_options.html)
 3. [Creating an upload server](quickstart/03-setting_up_server.html)
 
-##### Amazon S3 Uploader
+#### Amazon S3 Uploader
 
 1. [Getting Started with Fine Uploader](quickstart/01-getting-started.html)
 2. [Setting Fine Uploader options](quickstart/02-setting_options-s3.html)
 3. [Creating an upload server](quickstart/03-setting_up_server-s3.html)
 
-#### Fine Uploader Modes
+#### Azure Blob Storage Uploader
 
-* [Core](modes/core.html)
-* [UI](modes/ui.html)
+1. [Getting Started with Fine Uploader](quickstart/01-getting-started.html)
+2. [Setting Fine Uploader options](quickstart/02-setting_options-azure.html)
+3. [Creating an upload server](quickstart/03-setting_up_server-azure.html)
 
-#### Plugins
 
-* [jQuery](integrating/jquery.html)
+### Fine Uploader Modes
 
-#### Endpoint Handlers (server-side guidelines)
+* [Core](modes/core.html) - Most API methods and options available, build your own UI from scratch
+* [UI](modes/ui.html) - Inherits from core, provides additional UI-specific options and API methods. Default customizable UI.
 
-* [Traditional Server](endpoint_handlers/traditional.html)
-* [Amazon S3](endpoint_handlers/amazon-s3.html)
-* [Examples](https://github.com/Widen/fine-uploader-server)
 
-#### Additional Information
+### Plug-ins
 
-* [Browser Support](browser-support.html)
-* [Build Your Own](contributing.html)
-* [Contributing](https://github.com/Widen/fine-uploader/blob/master/CONTRIBUTING.md)
-* [Changelog](http://blog.fineuploader.com/category/changelog/)
-* [Support](support.html)
+* [jQuery](integrating/jquery.html) - _Not_ required to use _any_ feature of Fine Uploader. Simply wraps the library as a jQuery plug-in.
+
+
+### Endpoint Handlers (server-side guidelines)
+
+* [Traditional Server](endpoint_handlers/traditional.html) - For upload servers that you control and build.
+* [Amazon S3](endpoint_handlers/amazon-s3.html) - For uploads directly to S3 from the browser.
+* [Azure Blob Storage](endpoint_handlers/azure.html) - For uploads directly to Azure from the browser.
+* [Examples](https://github.com/FineUploader/fine-uploader-server) - GitHub repo of server-side examples to handle all types of Fine Uploader requests.
+
+
+### Additional Information
+
+* [Browser Support](browser-support.html) - Matrix of support for all major features. Also contains information on how to determine features support via JavaScript at runtime using Fine Uploader's API.
+* [Contributing](https://github.com/FineUploader/fine-uploader#contributing) - Guidelines and options for contributing back to this free open source library.
+* [Changelog](http://blog.fineuploader.com/category/changelog/) - High-level summary of all releases.
 * [FAQ](faq.html)
 
-#### Links
 
-* [Official Site](http://fineuploader.com/index.html)
+### Links
+
+* [Official Site](http://fineuploader.com)
 * [Blog](http://blog.fineuploader.com/)
-* [Issue Tracker](https://github.com/Widen/fine-uploader/issues)
-* [Support Forum](http://stackoverflow.com/questions/tagged/fine-uploader)
-* [GitHub repo](https://github.com/Widen/fine-uploader)
-
-### Features
-
-This section will outline some of the major features offered by Fine Uploader.
-Any options, events, and API methods relevant to that specific feature will
-be documented.
-
-* [Uploading Files](features/upload-files.html)
-* [Asynchronous Tasks & Promises](features/async-tasks-and-promises.html)
-* [Cancellable Uploads](features/cancellable-uploads.html)
-* [Chunking & Partitioning](features/chunking.html)
-* [CORS](features/CORS.html)
-* [Deleting Files](features/delete.html)
-* [Drag and Drop](features/drag-and-drop.html)
-* [Filename Editing](features/filename-edit.html)
-* [Handling Errors](features/handling-errors.html)
-* [Initial File Lists](features/session.html)
-* [Multiple Upload Buttons](features/extra-buttons.html)
-* [No-Server Uploads](features/no-server-uploads.html)
-* [Paste to Upload](features/paste-to-upload.html)
-* [Pause In-Progress Uploads](features/pause.html)
-* [Progress Bars](features/progress-bars.html)
-* [Previews & Thumbnails](features/thumbnails.html)
-* [Request Parameters](features/request-parameters.html)
-* [Resuming Uploads](features/resume.html)
-* [Retrying](features/retry.html)
-* [Statistics & Status Updates](features/statistics-and-status-updates.html)
-* [Styling](features/styling.html)
-* [Upload via Mobile Device Camera](features/upload-from-mobile-camera.html)
-* [Validation](features/validation.html)
-
-### API Reference
-
-The API reference is primarily for experienced integrators who are looking for
-more advanced features and details about Fine Uploader. That being said, these
-docs should be viewed by all who are looking to use Fine Uploader as some of the
-information is integral.
+* [Support](http://fineuploader.com/support)
+* [GitHub repository](https://github.com/FineUploader/fine-uploader)
 
 {% endmarkdown %}
-<div class="row-fluid">
-    <div class="span4">
-{% markdown %}
-#### Options
-* [Core](api/options.html)
-* [UI](api/options-ui.html)
-* [S3](api/options-s3.html)
-{% endmarkdown %}
-    </div>
-    <div class="span4">
-{% markdown %}
-#### Methods
-* [Core + UI](api/methods.html)
-* [S3](api/methods-s3.html)
-* [qq Utilities](api/qq.html)
-{% endmarkdown %}
-    </div>
-    <div class="span4">
-{% markdown %}
-#### Events
-* [Traditional](api/events.html)
-* [S3](api/events-s3.html)
-{% endmarkdown %}
-    </div>
-</div>
-
 {% endblock %}

@@ -30,11 +30,11 @@ qq.DragAndDrop = function(o) {
     }
 
     function traverseFileTree(entry) {
-        var dirReader,
-            parseEntryPromise = new qq.Promise();
+        var parseEntryPromise = new qq.Promise();
 
         if (entry.isFile) {
             entry.file(function(file) {
+                file.qqPath = extractDirectoryPath(entry);
                 droppedFiles.push(file);
                 parseEntryPromise.success();
             },
@@ -44,30 +44,74 @@ qq.DragAndDrop = function(o) {
             });
         }
         else if (entry.isDirectory) {
-            dirReader = entry.createReader();
-            dirReader.readEntries(function(entries) {
-                var entriesLeft = entries.length;
+            getFilesInDirectory(entry).then(
+                function allEntriesRead(entries) {
+                    var entriesLeft = entries.length;
 
-                qq.each(entries, function(idx, entry) {
-                    traverseFileTree(entry).done(function() {
-                        entriesLeft-=1;
+                    qq.each(entries, function(idx, entry) {
+                        traverseFileTree(entry).done(function() {
+                            entriesLeft -= 1;
 
-                        if (entriesLeft === 0) {
-                            parseEntryPromise.success();
-                        }
+                            if (entriesLeft === 0) {
+                                parseEntryPromise.success();
+                            }
+                        });
                     });
-                });
 
-                if (!entries.length) {
-                    parseEntryPromise.success();
+                    if (!entries.length) {
+                        parseEntryPromise.success();
+                    }
+                },
+
+                function readFailure(fileError) {
+                    options.callbacks.dropLog("Problem parsing '" + entry.fullPath + "'.  FileError code " + fileError.code + ".", "error");
+                    parseEntryPromise.failure();
                 }
-            }, function(fileError) {
-                options.callbacks.dropLog("Problem parsing '" + entry.fullPath + "'.  FileError code " + fileError.code + ".", "error");
-                parseEntryPromise.failure();
-            });
+            );
         }
 
         return parseEntryPromise;
+    }
+
+    function extractDirectoryPath(entry) {
+        var name = entry.name,
+            fullPath = entry.fullPath,
+            indexOfNameInFullPath = fullPath.lastIndexOf(name);
+
+        // remove file name from full path string
+        fullPath = fullPath.substr(0, indexOfNameInFullPath);
+
+        // remove leading slash in full path string
+        if (fullPath.charAt(0) === "/") {
+            fullPath = fullPath.substr(1);
+        }
+
+        return fullPath;
+    }
+
+    // Promissory.  Guaranteed to read all files in the root of the passed directory.
+    function getFilesInDirectory(entry, reader, accumEntries, existingPromise) {
+        var promise = existingPromise || new qq.Promise(),
+            dirReader = reader || entry.createReader();
+
+        dirReader.readEntries(
+            function readSuccess(entries) {
+                var newEntries = accumEntries ? accumEntries.concat(entries) : entries;
+
+                if (entries.length) {
+                    setTimeout(function() { // prevent stack overflow, however unlikely
+                        getFilesInDirectory(entry, dirReader, newEntries, promise);
+                    }, 0);
+                }
+                else {
+                    promise.success(newEntries);
+                }
+            },
+
+            promise.failure
+        );
+
+        return promise;
     }
 
     function handleDataTransfer(dataTransfer, uploadDropZone) {
@@ -123,17 +167,24 @@ qq.DragAndDrop = function(o) {
         var dropZone = new qq.UploadDropZone({
             HIDE_ZONES_EVENT_NAME: HIDE_ZONES_EVENT_NAME,
             element: dropArea,
-            onEnter: function(e){
+            onEnter: function(e) {
                 qq(dropArea).addClass(options.classes.dropActive);
+                options.callbacks.dragEnter();
                 e.stopPropagation();
             },
-            onLeaveNotDescendants: function(e){
+            onLeaveNotDescendants: function(e) {
                 qq(dropArea).removeClass(options.classes.dropActive);
+                options.callbacks.dragLeave();
             },
-            onDrop: function(e){
-                handleDataTransfer(e.dataTransfer, dropZone).done(function() {
-                    uploadDroppedFiles(droppedFiles, dropZone);
-                });
+            onDrop: function(e) {
+                handleDataTransfer(e.dataTransfer, dropZone).then(
+                    function() {
+                        uploadDroppedFiles(droppedFiles, dropZone);
+                    },
+                    function() {
+                        options.callbacks.dropLog("Drop event DataTransfer parsing failed.  No files will be uploaded.", "error");
+                    }
+                );
             }
         });
 
@@ -161,27 +212,47 @@ qq.DragAndDrop = function(o) {
         return fileDrag;
     }
 
+    // Attempt to determine when the file has left the document.  It is not always possible to detect this
+    // in all cases, but it is generally possible in all browsers, with a few exceptions.
+    //
+    // Exceptions:
+    // * IE10+ & Safari: We can't detect a file leaving the document if the Explorer window housing the file
+    //                   overlays the browser window.
+    // * IE10+: If the file is dragged out of the window too quickly, IE does not set the expected values of the
+    //          event's X & Y properties.
     function leavingDocumentOut(e) {
-        /* jshint -W041, eqeqeq:false */
-            // null coords for Chrome and Safari Windows
-        return ((qq.chrome() || (qq.safari() && qq.windows())) && e.clientX == 0 && e.clientY == 0) ||
-            // null e.relatedTarget for Firefox
-            (qq.firefox() && !e.relatedTarget);
+        if (qq.safari()) {
+            return e.x < 0 || e.y < 0;
+        }
+
+        return e.x === 0 && e.y === 0;
     }
 
     function setupDragDrop() {
-        var dropZones = options.dropZoneElements;
+        var dropZones = options.dropZoneElements,
+
+            maybeHideDropZones = function() {
+                setTimeout(function() {
+                    qq.each(dropZones, function(idx, dropZone) {
+                        qq(dropZone).hasAttribute(HIDE_BEFORE_ENTER_ATTR) && qq(dropZone).hide();
+                        qq(dropZone).removeClass(options.classes.dropActive);
+                    });
+                }, 10);
+            };
 
         qq.each(dropZones, function(idx, dropZone) {
             var uploadDropZone = setupDropzone(dropZone);
 
             // IE <= 9 does not support the File API used for drag+drop uploads
-            if (dropZones.length && (!qq.ie() || qq.ie10())) {
+            if (dropZones.length && qq.supportedFeatures.fileDrop) {
                 disposeSupport.attach(document, "dragenter", function(e) {
                     if (!uploadDropZone.dropDisabled() && isFileDrag(e)) {
                         qq.each(dropZones, function(idx, dropZone) {
-                            // We can't apply styles to non-HTMLElements, since they lack the `style` property
-                            if (dropZone instanceof HTMLElement) {
+                            // We can't apply styles to non-HTMLElements, since they lack the `style` property.
+                            // Also, if the drop zone isn't initially hidden, let's not mess with `style.display`.
+                            if (dropZone instanceof HTMLElement &&
+                                qq(dropZone).hasAttribute(HIDE_BEFORE_ENTER_ATTR)) {
+
                                 qq(dropZone).css({display: "block"});
                             }
                         });
@@ -192,25 +263,25 @@ qq.DragAndDrop = function(o) {
 
         disposeSupport.attach(document, "dragleave", function(e) {
             if (leavingDocumentOut(e)) {
-                qq.each(dropZones, function(idx, dropZone) {
-                    qq(dropZone).hasAttribute(HIDE_BEFORE_ENTER_ATTR) && qq(dropZone).hide();
-                });
+                maybeHideDropZones();
             }
         });
 
-        disposeSupport.attach(document, "drop", function(e){
-            qq.each(dropZones, function(idx, dropZone) {
-                qq(dropZone).hasAttribute(HIDE_BEFORE_ENTER_ATTR) && qq(dropZone).hide();
-            });
-            e.preventDefault();
+        // Just in case we were not able to detect when a dragged file has left the document,
+        // hide all relevant drop zones the next time the mouse enters the document.
+        // Note that mouse events such as this one are not fired during drag operations.
+        disposeSupport.attach(qq(document).children()[0], "mouseenter", function(e) {
+            maybeHideDropZones();
         });
 
-        disposeSupport.attach(document, HIDE_ZONES_EVENT_NAME, function(e) {
-            qq.each(options.dropZoneElements, function(idx, zone) {
-                qq(zone).hasAttribute(HIDE_BEFORE_ENTER_ATTR) && qq(zone).hide();
-                qq(zone).removeClass(options.classes.dropActive);
-            });
+        disposeSupport.attach(document, "drop", function(e) {
+            if (isFileDrag(e)) {
+                e.preventDefault();
+                maybeHideDropZones();
+            }
         });
+
+        disposeSupport.attach(document, HIDE_ZONES_EVENT_NAME, maybeHideDropZones);
     }
 
     setupDragDrop();
@@ -225,7 +296,7 @@ qq.DragAndDrop = function(o) {
             var i,
                 dzs = options.dropZoneElements;
 
-            for(i in dzs) {
+            for (i in dzs) {
                 if (dzs[i] === element) {
                     return dzs.splice(i, 1);
                 }
@@ -239,12 +310,17 @@ qq.DragAndDrop = function(o) {
             });
         }
     });
+
+    this._testing = {};
+    this._testing.extractDirectoryPath = extractDirectoryPath;
 };
 
 qq.DragAndDrop.callbacks = function() {
     "use strict";
 
     return {
+        dragEnter: function () {},
+        dragLeave: function () {},
         processingDroppedFiles: function() {},
         processingDroppedFilesComplete: function(files, targetEl) {},
         dropError: function(code, errorSpecifics) {
@@ -256,7 +332,7 @@ qq.DragAndDrop.callbacks = function() {
     };
 };
 
-qq.UploadDropZone = function(o){
+qq.UploadDropZone = function(o) {
     "use strict";
 
     var disposeSupport = new qq.DisposeSupport(),
@@ -264,32 +340,32 @@ qq.UploadDropZone = function(o){
 
     options = {
         element: null,
-        onEnter: function(e){},
-        onLeave: function(e){},
+        onEnter: function(e) {},
+        onLeave: function(e) {},
         // is not fired when leaving element by hovering descendants
-        onLeaveNotDescendants: function(e){},
-        onDrop: function(e){}
+        onLeaveNotDescendants: function(e) {},
+        onDrop: function(e) {}
     };
 
     qq.extend(options, o);
     element = options.element;
 
-    function dragover_should_be_canceled(){
+    function dragoverShouldBeCanceled() {
         return qq.safari() || (qq.firefox() && qq.windows());
     }
 
-    function disableDropOutside(e){
+    function disableDropOutside(e) {
         // run only once for all instances
-        if (!dropOutsideDisabled ){
+        if (!dropOutsideDisabled) {
 
             // for these cases we need to catch onDrop to reset dropArea
-            if (dragover_should_be_canceled){
-                disposeSupport.attach(document, "dragover", function(e){
+            if (dragoverShouldBeCanceled) {
+                disposeSupport.attach(document, "dragover", function(e) {
                     e.preventDefault();
                 });
             } else {
-                disposeSupport.attach(document, "dragover", function(e){
-                    if (e.dataTransfer){
+                disposeSupport.attach(document, "dragover", function(e) {
+                    if (e.dataTransfer) {
                         e.dataTransfer.dropEffect = "none";
                         e.preventDefault();
                     }
@@ -300,10 +376,10 @@ qq.UploadDropZone = function(o){
         }
     }
 
-    function isValidFileDrag(e){
+    function isValidFileDrag(e) {
         // e.dataTransfer currently causing IE errors
         // IE9 does NOT support file API, so drag-and-drop is not possible
-        if (qq.ie() && !qq.ie10()) {
+        if (!qq.supportedFeatures.fileDrop) {
             return false;
         }
 
@@ -312,12 +388,16 @@ qq.UploadDropZone = function(o){
         isSafari = qq.safari();
 
         // dt.effectAllowed is none in Safari 5
-        // dt.types.contains check is for firefox
 
-        // dt.effectAllowed crashes IE11 when files have been dragged from
+        // dt.effectAllowed crashes IE 11 & 10 when files have been dragged from
         // the filesystem
-        effectTest = (qq.ie10() || qq.ie11()) ? true : dt.effectAllowed !== "none";
-        return dt && effectTest && (dt.files || (!isSafari && dt.types.contains && dt.types.contains("Files")));
+        effectTest = qq.ie() && qq.supportedFeatures.fileDrop ? true : dt.effectAllowed !== "none";
+        return dt && effectTest &&
+                (
+                    (dt.files && dt.files.length) ||                                     // Valid for drop events with files
+                    (!isSafari && dt.types.contains && dt.types.contains("Files")) ||  // Valid in Chrome/Firefox
+                    (dt.types.includes && dt.types.includes("Files"))               // Valid in IE
+                );
     }
 
     function isOrSetDropDisabled(isDisabled) {
@@ -350,16 +430,16 @@ qq.UploadDropZone = function(o){
         document.dispatchEvent(hideZonesEvent);
     }
 
-    function attachEvents(){
-        disposeSupport.attach(element, "dragover", function(e){
+    function attachEvents() {
+        disposeSupport.attach(element, "dragover", function(e) {
             if (!isValidFileDrag(e)) {
                 return;
             }
 
-            // dt.effectAllowed crashes IE11 when files have been dragged from
+            // dt.effectAllowed crashes IE 11 & 10 when files have been dragged from
             // the filesystem
-            var effect = (qq.ie() || qq.ie11()) ? null : e.dataTransfer.effectAllowed;
-            if (effect === "move" || effect === "linkMove"){
+            var effect = qq.ie() && qq.supportedFeatures.fileDrop ? null : e.dataTransfer.effectAllowed;
+            if (effect === "move" || effect === "linkMove") {
                 e.dataTransfer.dropEffect = "move"; // for FF (only move allowed)
             } else {
                 e.dataTransfer.dropEffect = "copy"; // for Chrome
@@ -369,7 +449,7 @@ qq.UploadDropZone = function(o){
             e.preventDefault();
         });
 
-        disposeSupport.attach(element, "dragenter", function(e){
+        disposeSupport.attach(element, "dragenter", function(e) {
             if (!isOrSetDropDisabled()) {
                 if (!isValidFileDrag(e)) {
                     return;
@@ -378,7 +458,7 @@ qq.UploadDropZone = function(o){
             }
         });
 
-        disposeSupport.attach(element, "dragleave", function(e){
+        disposeSupport.attach(element, "dragleave", function(e) {
             if (!isValidFileDrag(e)) {
                 return;
             }
@@ -425,4 +505,7 @@ qq.UploadDropZone = function(o){
             return element;
         }
     });
+
+    this._testing = {};
+    this._testing.isValidFileDrag = isValidFileDrag;
 };

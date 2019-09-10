@@ -2,27 +2,34 @@
 /**
  * Defines the public API for FineUploader mode.
  */
-(function(){
+(function() {
     "use strict";
 
     qq.uiPublicApi = {
+        addInitialFiles: function(cannedFileList) {
+            this._parent.prototype.addInitialFiles.apply(this, arguments);
+            this._templating.addCacheToDom();
+        },
+
         clearStoredFiles: function() {
             this._parent.prototype.clearStoredFiles.apply(this, arguments);
             this._templating.clearFiles();
         },
 
-        addExtraDropzone: function(element){
+        addExtraDropzone: function(element) {
             this._dnd && this._dnd.setupExtraDropzone(element);
         },
 
-        removeExtraDropzone: function(element){
+        removeExtraDropzone: function(element) {
             if (this._dnd) {
                 return this._dnd.removeDropzone(element);
             }
         },
 
         getItemByFileId: function(id) {
-            return this._templating.getFileContainer(id);
+            if (!this._templating.isHiddenForever(id)) {
+                return this._templating.getFileContainer(id);
+            }
         },
 
         reset: function() {
@@ -30,7 +37,10 @@
             this._templating.reset();
 
             if (!this._options.button && this._templating.getButton()) {
-                this._defaultButtonId = this._createUploadButton({element: this._templating.getButton()}).getButtonId();
+                this._defaultButtonId = this._createUploadButton({
+                    element: this._templating.getButton(),
+                    title: this._options.text.fileInputTitle
+                }).getButtonId();
             }
 
             if (this._dnd) {
@@ -42,6 +52,13 @@
             this._filesInBatchAddedToUi = 0;
 
             this._setupClickAndEditEventHandlers();
+        },
+
+        setName: function(id, newName) {
+            var formattedFilename = this._options.formatFileName(newName);
+
+            this._parent.prototype.setName.apply(this, arguments);
+            this._templating.updateFilename(id, formattedFilename);
         },
 
         pauseUpload: function(id) {
@@ -68,9 +85,6 @@
             return file.qqDropTarget;
         }
     };
-
-
-
 
     /**
      * Defines the private (internal) API for FineUploader mode.
@@ -132,7 +146,7 @@
                             file.qqDropTarget = targetEl;
                         });
 
-                        if (files) {
+                        if (files.length) {
                             self.addFiles(files, null, null);
                         }
                     },
@@ -165,7 +179,6 @@
                 },
 
                 onRetry: function(fileId) {
-                    qq(self._templating.getFileContainer(fileId)).removeClass(self._classes.retryable);
                     self.retry(fileId);
                 },
 
@@ -208,9 +221,6 @@
                     return self.getName(fileId);
                 },
                 onSetName: function(id, newName) {
-                    var formattedFilename = self._options.formatFileName(newName);
-
-                    templating.updateFilename(id, formattedFilename);
                     self.setName(id, newName);
                 },
                 onEditingStatusChange: function(id, isEditing) {
@@ -244,6 +254,15 @@
                     this._templating.hideEditIcon(id);
                 }
             }
+
+            if (oldStatus === qq.status.UPLOAD_RETRYING && newStatus === qq.status.UPLOADING) {
+                this._templating.hideRetry(id);
+                this._templating.setStatusText(id);
+                qq(this._templating.getFileContainer(id)).removeClass(this._classes.retrying);
+            }
+            else if (newStatus === qq.status.UPLOAD_FAILED) {
+                this._templating.hidePause(id);
+            }
         },
 
         _bindFilenameInputFocusInEvent: function() {
@@ -269,7 +288,20 @@
             this._templating.hideSpinner(id);
         },
 
+        _onAllComplete: function(successful, failed) {
+            this._parent.prototype._onAllComplete.apply(this, arguments);
+            this._templating.resetTotalProgress();
+        },
+
         _onSubmit: function(id, name) {
+            var file = this.getFile(id);
+
+            if (file && file.qqPath && this._options.dragAndDrop.reportDirectoryPaths) {
+                this._paramsStore.addReadOnly(id, {
+                    qqpath: file.qqPath
+                });
+            }
+
             this._parent.prototype._onSubmit.apply(this, arguments);
             this._addToList(id, name);
         },
@@ -289,18 +321,18 @@
         },
 
         // Update the progress bar & percentage as the file is uploaded
-        _onProgress: function(id, name, loaded, total){
+        _onProgress: function(id, name, loaded, total) {
             this._parent.prototype._onProgress.apply(this, arguments);
 
             this._templating.updateProgress(id, loaded, total);
 
-            if (loaded === total) {
+            if (total === 0 || Math.round(loaded / total * 100) === 100) {
                 this._templating.hideCancel(id);
                 this._templating.hidePause(id);
-
+                this._templating.hideProgress(id);
                 this._templating.setStatusText(id, this._options.text.waitingForResponse);
 
-                // If last byte was sent, display total file size
+                // If ~last byte was sent, display total file size
                 this._displayFileSize(id);
             }
             else {
@@ -309,18 +341,30 @@
             }
         },
 
+        _onTotalProgress: function(loaded, total) {
+            this._parent.prototype._onTotalProgress.apply(this, arguments);
+            this._templating.updateTotalProgress(loaded, total);
+        },
+
         _onComplete: function(id, name, result, xhr) {
             var parentRetVal = this._parent.prototype._onComplete.apply(this, arguments),
                 templating = this._templating,
+                fileContainer = templating.getFileContainer(id),
                 self = this;
 
             function completeUpload(result) {
+                // If this file is not represented in the templating module, perhaps it was hidden intentionally.
+                // If so, don't perform any UI-related tasks related to this file.
+                if (!fileContainer) {
+                    return;
+                }
+
                 templating.setStatusText(id);
 
-                qq(templating.getFileContainer(id)).removeClass(self._classes.retrying);
+                qq(fileContainer).removeClass(self._classes.retrying);
                 templating.hideProgress(id);
 
-                if (!self._options.disableCancelForFormUploads || qq.supportedFeatures.ajaxUploading) {
+                if (self.getUploads({id: id}).status !== qq.status.UPLOAD_FAILED) {
                     templating.hideCancel(id);
                 }
                 templating.hideSpinner(id);
@@ -329,10 +373,12 @@
                     self._markFileAsSuccessful(id);
                 }
                 else {
-                    qq(templating.getFileContainer(id)).addClass(self._classes.fail);
+                    qq(fileContainer).addClass(self._classes.fail);
+                    templating.showCancel(id);
 
-                    if (self._templating.isRetryPossible() && !self._preventRetries[id]) {
-                        qq(templating.getFileContainer(id)).addClass(self._classes.retryable);
+                    if (templating.isRetryPossible() && !self._preventRetries[id]) {
+                        qq(fileContainer).addClass(self._classes.retryable);
+                        templating.showRetry(id);
                     }
                     self._controlFailureTextDisplay(id, result);
                 }
@@ -364,7 +410,12 @@
             this._maybeUpdateThumbnail(id);
         },
 
-        _onUpload: function(id, name){
+        _onUploadPrep: function(id) {
+            this._parent.prototype._onUploadPrep.apply(this, arguments);
+            this._templating.showSpinner(id);
+        },
+
+        _onUpload: function(id, name) {
             var parentRetVal = this._parent.prototype._onUpload.apply(this, arguments);
 
             this._templating.showSpinner(id);
@@ -376,12 +427,19 @@
             this._parent.prototype._onUploadChunk.apply(this, arguments);
 
             // Only display the pause button if we have finished uploading at least one chunk
-            chunkData.partIndex > 0 && this._templating.allowPause(id);
+            // & this file can be resumed
+            if (chunkData.partIndex > 0 && this._handler.isResumable(id)) {
+                this._templating.allowPause(id);
+            }
         },
 
         _onCancel: function(id, name) {
             this._parent.prototype._onCancel.apply(this, arguments);
             this._removeFileItem(id);
+
+            if (this._getNotFinished() === 0) {
+                this._templating.resetTotalProgress();
+            }
         },
 
         _onBeforeAutoRetry: function(id) {
@@ -392,7 +450,7 @@
             this._showCancelLink(id);
 
             if (this._options.retry.showAutoRetryNote) {
-                retryNumForDisplay = this._autoRetries[id] + 1;
+                retryNumForDisplay = this._autoRetries[id];
                 maxAuto = this._options.retry.maxAutoAttempts;
 
                 retryNote = this._options.retry.autoRetryNote.replace(/\{retryNum\}/g, retryNumForDisplay);
@@ -415,6 +473,7 @@
             }
             else {
                 qq(this._templating.getFileContainer(id)).addClass(this._classes.retryable);
+                this._templating.showRetry(id);
                 return false;
             }
         },
@@ -466,8 +525,8 @@
 
             retVal = this._options.showConfirm(confirmMessage);
 
-            if (retVal instanceof qq.Promise) {
-                retVal.then(function () {
+            if (qq.isGenericPromise(retVal)) {
+                retVal.then(function() {
                     self._sendDeleteRequest.apply(self, deleteRequestArgs);
                 });
             }
@@ -478,7 +537,9 @@
 
         _addToList: function(id, name, canned) {
             var prependData,
-                prependIndex = 0;
+                prependIndex = 0,
+                dontDisplay = this._handler.isProxied(id) && this._options.scaling.hideScaled,
+                record;
 
             if (this._options.display.prependFiles) {
                 if (this._totalFilesInBatch > 1 && this._filesInBatchAddedToUi > 0) {
@@ -495,29 +556,41 @@
                     this._templating.disableCancel();
                 }
 
+                // Cancel all existing (previous) files and clear the list if this file is not part of
+                // a scaled file group that has already been accepted, or if this file is not part of
+                // a scaled file group at all.
                 if (!this._options.multiple) {
-                    this._handler.cancelAll();
-                    this._clearList();
+                    record = this.getUploads({id: id});
+
+                    this._handledProxyGroup = this._handledProxyGroup || record.proxyGroupId;
+
+                    if (record.proxyGroupId !== this._handledProxyGroup || !record.proxyGroupId) {
+                        this._handler.cancelAll();
+                        this._clearList();
+                        this._handledProxyGroup = null;
+                    }
                 }
             }
 
-            this._templating.addFile(id, this._options.formatFileName(name), prependData);
-
             if (canned) {
-                this._thumbnailUrls[id] && this._templating.updateThumbnail(id, this._thumbnailUrls[id], true);
+                this._templating.addFileToCache(id, this._options.formatFileName(name), prependData, dontDisplay);
+                this._templating.updateThumbnail(id, this._thumbnailUrls[id], true, this._options.thumbnails.customResizer);
             }
             else {
-                this._templating.generatePreview(id, this.getFile(id));
+                this._templating.addFile(id, this._options.formatFileName(name), prependData, dontDisplay);
+                this._templating.generatePreview(id, this.getFile(id), this._options.thumbnails.customResizer);
             }
 
             this._filesInBatchAddedToUi += 1;
 
-            if (this._options.display.fileSizeOnSubmit && qq.supportedFeatures.ajaxUploading) {
+            if (canned ||
+                (this._options.display.fileSizeOnSubmit && qq.supportedFeatures.ajaxUploading)) {
+
                 this._displayFileSize(id);
             }
         },
 
-        _clearList: function(){
+        _clearList: function() {
             this._templating.clearFiles();
             this.clearStoredFiles();
         },
@@ -535,7 +608,7 @@
             }
         },
 
-        _formatProgress: function (uploadedSize, totalSize) {
+        _formatProgress: function(uploadedSize, totalSize) {
             var message = this._options.text.formatProgress;
             function r(name, replacement) { message = message.replace(name, replacement); }
 
@@ -545,25 +618,18 @@
         },
 
         _controlFailureTextDisplay: function(id, response) {
-            var mode, maxChars, responseProperty, failureReason, shortFailureReason;
+            var mode, responseProperty, failureReason;
 
             mode = this._options.failedUploadTextDisplay.mode;
-            maxChars = this._options.failedUploadTextDisplay.maxChars;
             responseProperty = this._options.failedUploadTextDisplay.responseProperty;
 
             if (mode === "custom") {
                 failureReason = response[responseProperty];
-                if (failureReason) {
-                    if (failureReason.length > maxChars) {
-                        shortFailureReason = failureReason.substring(0, maxChars) + "...";
-                    }
-                }
-                else {
+                if (!failureReason) {
                     failureReason = this._options.text.failUpload;
-                    this.log("'" + responseProperty + "' is not a valid property on the server response.", "warn");
                 }
 
-                this._templating.setStatusText(id, shortFailureReason || failureReason);
+                this._templating.setStatusText(id, failureReason);
 
                 if (this._options.failedUploadTextDisplay.enableTooltip) {
                     this._showTooltip(id, failureReason);
@@ -620,9 +686,18 @@
         },
 
         _maybeUpdateThumbnail: function(fileId) {
-            var thumbnailUrl = this._thumbnailUrls[fileId];
+            var thumbnailUrl = this._thumbnailUrls[fileId],
+                fileStatus = this.getUploads({id: fileId}).status;
 
-            this._templating.updateThumbnail(fileId, thumbnailUrl);
+            if (fileStatus !== qq.status.DELETED &&
+                (thumbnailUrl ||
+                this._options.thumbnails.placeholders.waitUntilResponse ||
+                !qq.supportedFeatures.imagePreviews)) {
+
+                // This will replace the "waiting" placeholder with a "preview not available" placeholder
+                // if called with a null thumbnailUrl.
+                this._templating.updateThumbnail(fileId, thumbnailUrl, this._options.thumbnails.customResizer);
+            }
         },
 
         _addCannedFile: function(sessionData) {
@@ -634,6 +709,17 @@
             this._markFileAsSuccessful(id);
 
             return id;
+        },
+
+        _setSize: function(id, newSize) {
+            this._parent.prototype._setSize.apply(this, arguments);
+
+            this._templating.updateSize(id, this._formatSize(newSize));
+        },
+
+        _sessionRequestComplete: function() {
+            this._templating.addCacheToDom();
+            this._parent.prototype._sessionRequestComplete.apply(this, arguments);
         }
     };
 }());

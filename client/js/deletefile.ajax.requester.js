@@ -8,9 +8,8 @@ qq.DeleteFileAjaxRequester = function(o) {
             uuidParamName: "qquuid",
             endpointStore: {},
             maxConnections: 3,
-            customHeaders: {},
+            customHeaders: function(id) {return {};},
             paramsStore: {},
-            demoMode: false,
             cors: {
                 expected: false,
                 sendCredentials: false
@@ -25,28 +24,29 @@ qq.DeleteFileAjaxRequester = function(o) {
     function getMandatedParams() {
         if (options.method.toUpperCase() === "POST") {
             return {
-                "_method": "DELETE"
+                _method: "DELETE"
             };
         }
 
         return {};
     }
 
-    requester = new qq.AjaxRequester({
+    requester = qq.extend(this, new qq.AjaxRequester({
+        acceptHeader: "application/json",
         validMethods: ["POST", "DELETE"],
         method: options.method,
         endpointStore: options.endpointStore,
         paramsStore: options.paramsStore,
         mandatedParams: getMandatedParams(),
         maxConnections: options.maxConnections,
-        customHeaders: options.customHeaders,
-        demoMode: options.demoMode,
+        customHeaders: function(id) {
+            return options.customHeaders.get(id);
+        },
         log: options.log,
         onSend: options.onDelete,
         onComplete: options.onDeleteComplete,
         cors: options.cors
-    });
-
+    }));
 
     qq.extend(this, {
         sendDelete: function(id, uuid, additionalMandatedParams) {

@@ -5,6 +5,8 @@
 qq.FineUploader = function(o, namespace) {
     "use strict";
 
+    var self = this;
+
     // By default this should inherit instance data from FineUploaderBasic, but this can be overridden
     // if the (internal) caller defines a different parent.  The parent is also used by
     // the private and public API functions that need to delegate to a parent function.
@@ -20,7 +22,8 @@ qq.FineUploader = function(o, namespace) {
         listElement: null,
 
         dragAndDrop: {
-            extraDropzones: []
+            extraDropzones: [],
+            reportDirectoryPaths: false
         },
 
         text: {
@@ -44,7 +47,6 @@ qq.FineUploader = function(o, namespace) {
 
         failedUploadTextDisplay: {
             mode: "default", //default, custom, or none
-            maxChars: 50,
             responseProperty: "error",
             enableTooltip: true
         },
@@ -78,25 +80,47 @@ qq.FineUploader = function(o, namespace) {
         },
 
         thumbnails: {
+            customResizer: null,
+            maxCount: 0,
             placeholders: {
                 waitUntilResponse: false,
                 notAvailablePath: null,
                 waitingPath: null
+            },
+            timeBetweenThumbs: 750
+        },
+
+        scaling: {
+            hideScaled: false
+        },
+
+        showMessage: function(message) {
+            if (self._templating.hasDialog("alert")) {
+                return self._templating.showDialog("alert", message);
+            }
+            else {
+                setTimeout(function() {
+                    window.alert(message);
+                }, 0);
             }
         },
 
-        showMessage: function(message){
-            setTimeout(function() {
-                window.alert(message);
-            }, 0);
-        },
-
         showConfirm: function(message) {
-            return window.confirm(message);
+            if (self._templating.hasDialog("confirm")) {
+                return self._templating.showDialog("confirm", message);
+            }
+            else {
+                return window.confirm(message);
+            }
         },
 
         showPrompt: function(message, defaultValue) {
-            return window.prompt(message, defaultValue);
+            if (self._templating.hasDialog("prompt")) {
+                return self._templating.showDialog("prompt", message, defaultValue);
+            }
+            else {
+                return window.prompt(message, defaultValue);
+            }
         }
     }, true);
 
@@ -114,6 +138,10 @@ qq.FineUploader = function(o, namespace) {
             hide: this._options.classes.hide,
             editable: this._options.classes.editable
         },
+        limits: {
+            maxThumbs: this._options.thumbnails.maxCount,
+            timeBetweenThumbs: this._options.thumbnails.timeBetweenThumbs
+        },
         placeholders: {
             waitUntilUpdate: this._options.thumbnails.placeholders.waitUntilResponse,
             thumbnailNotAvailable: this._options.thumbnails.placeholders.notAvailablePath,
@@ -122,7 +150,10 @@ qq.FineUploader = function(o, namespace) {
         text: this._options.text
     });
 
-    if (!qq.supportedFeatures.uploading || (this._options.cors.expected && !qq.supportedFeatures.uploadCors)) {
+    if (this._options.workarounds.ios8SafariUploads && qq.ios800() && qq.iosSafari()) {
+        this._templating.renderFailure(this._options.messages.unsupportedBrowserIos8Safari);
+    }
+    else if (!qq.supportedFeatures.uploading || (this._options.cors.expected && !qq.supportedFeatures.uploadCors)) {
         this._templating.renderFailure(this._options.messages.unsupportedBrowser);
     }
     else {
@@ -133,7 +164,10 @@ qq.FineUploader = function(o, namespace) {
         this._classes = this._options.classes;
 
         if (!this._options.button && this._templating.getButton()) {
-            this._defaultButtonId = this._createUploadButton({element: this._templating.getButton()}).getButtonId();
+            this._defaultButtonId = this._createUploadButton({
+                element: this._templating.getButton(),
+                title: this._options.text.fileInputTitle
+            }).getButtonId();
         }
 
         this._setupClickAndEditEventHandlers();
@@ -147,7 +181,7 @@ qq.FineUploader = function(o, namespace) {
                 this._setupPastePrompt();
             }
             else {
-                qq.log("Paste support module not found.", "info");
+                this.log("Paste support module not found.", "error");
             }
         }
 

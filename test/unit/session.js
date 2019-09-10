@@ -4,16 +4,55 @@ describe("file list initialization tests", function() {
 
     var fileHelper = helpme.setupFileTests(),
         sessionEndpoint = "/uploads/initial",
-        thumbnailSrc = "http://fineuploader.com/img/fineuploader-header-logo.png";
+        thumbnailSrc = "http://" + window.location.hostname + ":4000/up.jpg";
 
 
     beforeEach(function() {
         fileHelper.mockXhr();
     });
 
-    it("adds valid items to the initial file list", function(done) {
-        assert.expect(23, done);
+    it("adds valid items to the initial file list via API", function() {
+        var uploader = new qq.FineUploaderBasic({
+            validation: {
+                itemLimit: 5
+            }
+        });
 
+
+        uploader.addInitialFiles([
+            {
+                name: "up.jpg",
+                uuid: "123",
+                size: 456
+            },
+            {
+                name: "up2.jpg",
+                uuid: "abc"
+            }
+        ]);
+
+        assert.equal(uploader.getUploads().length, 2, "wrong number of pre-populated uploads recorded");
+        assert.equal(uploader.getUploads({status: qq.status.UPLOAD_SUCCESSFUL}).length, 2, "wrong status for one or more recorded files");
+
+        assert.equal(uploader.getUuid(0), "123", "123 UUID was not recorded");
+        assert.equal(uploader.getUuid(1), "abc", "abc UUID was not recorded");
+
+        assert.equal(uploader.getSize(0), 456, "wrong size for first file");
+        assert.equal(uploader.getSize(1), -1, "wrong size for second file");
+
+        assert.equal(uploader.getName(0), "up.jpg", "wrong name for first file");
+        assert.equal(uploader.getName(1), "up2.jpg", "wrong name for second file");
+
+        assert.equal(uploader.getFile(0), null, "unexpected return value for getFile");
+        assert.equal(uploader.getFile(1), null, "unexpected return value for getFile");
+
+        assert.equal(uploader.getInProgress(), 0, "unexpected getInProgress value");
+        assert.equal(uploader.getNetUploads(), 2, "unexpected getNetUploads value");
+
+        assert.equal(uploader.getRemainingAllowedItems(), 3, "wrong number of remaining allowed items");
+    });
+
+    it("adds valid items to the initial file list via GET request", function(done) {
         var expectedSessionResponse = [
                 {
                     name: "up.jpg",
@@ -60,7 +99,7 @@ describe("file list initialization tests", function() {
             assert.equal(uploader.getUuid(1), "abc", "abc UUID was not recorded");
 
             assert.equal(uploader.getSize(0), 456, "wrong size for first file");
-            assert.equal(uploader.getSize(1), null, "wrong size for second file");
+            assert.equal(uploader.getSize(1), -1, "wrong size for second file");
 
             assert.equal(uploader.getName(0), "up.jpg", "wrong name for first file");
             assert.equal(uploader.getName(1), "up2.jpg", "wrong name for second file");
@@ -80,44 +119,49 @@ describe("file list initialization tests", function() {
             uploader.setName(0, "raynicholus");
             assert.equal(uploader.getName(0), "raynicholus", "name was not changed correctly");
             assert.equal(uploader.getName(1), "up2.jpg", "second file name was changed unexpectedly");
+
+            done();
         }, 0);
     });
 
-    it("drawThumbnail renders image properly if session response includes thumbnailUrl", function(done) {
-        assert.expect(3, done);
+    // The <img> fails to load sometimes in older versions of IE for some unknown reason, so we have to exclude this test
+    if (!qq.ie() || qq.ie10() || qq.ie11()) {
+        it("drawThumbnail renders image properly if session response includes thumbnailUrl", function(done) {
+            assert.expect(3, done);
 
-        $fixture.append("<img id='testimg'>");
+            var img = document.createElement("img");
 
-        var expectedSessionResponse = [
-                {
-                    name: "up.jpg",
-                    uuid: "123",
-                    thumbnailUrl: thumbnailSrc
-                }
-            ],
-            uploader = new qq.FineUploaderBasic({
-                session: {
-                    endpoint: sessionEndpoint
-                },
-                callbacks: {
-                    onSessionRequestComplete: function(response, success, xhr) {
-                        assert.deepEqual(response, expectedSessionResponse, "unexpected callback response");
-                        assert.ok(success, "session request deemed failure");
+            var expectedSessionResponse = [
+                    {
+                        name: "up.jpg",
+                        uuid: "123",
+                        thumbnailUrl: thumbnailSrc
+                    }
+                ],
+                uploader = new qq.FineUploaderBasic({
+                    session: {
+                        endpoint: sessionEndpoint
+                    },
+                    callbacks: {
+                        onSessionRequestComplete: function(response, success, xhr) {
+                            assert.deepEqual(response, expectedSessionResponse, "unexpected callback response");
+                            assert.ok(success, "session request deemed failure");
 
-                        uploader.drawThumbnail(0, document.getElementById("testimg"), 0, true).then(function() {
-                            assert.equal(document.getElementById("testimg").src, thumbnailSrc, "wrong thumbnail src");
-                        }, function() {
-                            assert.fail(null, null, "Thumbnail generation failed");
-                        });
+                            uploader.drawThumbnail(0, img, 0, true).then(function(container) {
+                                assert.equal(container.src, thumbnailSrc, "wrong thumbnail src");
+                            }, function() {
+                                assert.fail(null, null, "Thumbnail generation failed");
+                            });
+                        }
                     }
                 }
-            }
-        );
+            );
 
-        setTimeout(function() {
-            fileHelper.getRequests()[0].respond(200, null, JSON.stringify(expectedSessionResponse));
-        }, 0);
-    });
+            setTimeout(function() {
+                fileHelper.getRequests()[0].respond(200, null, JSON.stringify(expectedSessionResponse));
+            }, 0);
+        });
+    }
 
     it("ignores response items that do not contain a valid UUID or name", function(done) {
         assert.expect(3, done);
@@ -328,21 +372,27 @@ describe("file list initialization tests", function() {
         }, 0);
     });
 
-    it("ignores S3 response items that do not contain a valid key", function(done) {
-        assert.expect(3, done);
+    describe("non-traditional endpoint tests", function() {
+        function runTest(namespace, requiredKeyName, done) {
+            assert.expect(3, done);
 
-        var expectedSessionResponse = [
-                {
-                    uuid: "123",
-                    name: "hi",
-                    s3Key: "raynicholus"
-                },
-                {
-                    name: "up2.jpg",
-                    uuid: "abc"
-                }
-            ],
-            uploader = new qq.s3.FineUploaderBasic({
+            var expectedSessionResponse = [
+                    {
+                        uuid: "123",
+                        name: "hi"
+                    },
+                    {
+                        name: "up2.jpg",
+                        uuid: "abc"
+                    }
+                ],
+                uploader,
+                request;
+
+
+            expectedSessionResponse[0][requiredKeyName] = "raynicholus";
+
+            uploader = new qq[namespace].FineUploaderBasic({
                 session: {
                     endpoint: sessionEndpoint
                 },
@@ -352,14 +402,24 @@ describe("file list initialization tests", function() {
                         assert.ok(!success, "session request deemed success unexpectedly");
                     }
                 }
-            }
-        ),
-            request;
+            });
 
-        setTimeout(function() {
-            request = fileHelper.getRequests()[0];
-            request.respond(200, null, JSON.stringify(expectedSessionResponse));
-            assert.equal(uploader.getUploads().length, 1, "wrong number of pre-populated uploads recorded");
-        }, 0);
+            setTimeout(function() {
+                request = fileHelper.getRequests()[0];
+                request.respond(200, null, JSON.stringify(expectedSessionResponse));
+                assert.equal(uploader.getUploads().length, 1, "wrong number of pre-populated uploads recorded");
+            }, 0);
+        }
+
+        it("ignores S3 response items that do not contain a valid key", function(done) {
+            runTest("s3", "s3Key", done);
+        });
+
+        // Azure-based tests are irrelevant in "older" browsers since they don't support uploading to Azure
+        if (qq.supportedFeatures.ajaxUploading) {
+            it("ignores Azure response items that do not contain a valid blob name", function(done) {
+                runTest("azure", "blobName", done);
+            });
+        }
     });
 });

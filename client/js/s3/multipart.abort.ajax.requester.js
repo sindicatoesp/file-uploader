@@ -15,6 +15,8 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
             endpointStore: null,
             signatureSpec: null,
             maxConnections: 3,
+            getBucket: function(id) {},
+            getHost: function(id) {},
             getKey: function(id) {},
             log: function(str, level) {}
         },
@@ -24,6 +26,7 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
 
     // Transport for requesting signatures (for the "Complete" requests) from the local server
     getSignatureAjaxRequester = new qq.s3.RequestSigner({
+        endpointStore: options.endpointStore,
         signatureSpec: options.signatureSpec,
         cors: options.cors,
         log: options.log
@@ -41,18 +44,14 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
     function getHeaders(id, uploadId) {
         var headers = {},
             promise = new qq.Promise(),
-            endpoint = options.endpointStore.getEndpoint(id),
-            bucket = qq.s3.util.getBucket(endpoint),
+            bucket = options.getBucket(id),
+            host = options.getHost(id),
             signatureConstructor = getSignatureAjaxRequester.constructStringToSign
-                (getSignatureAjaxRequester.REQUEST_TYPE.MULTIPART_ABORT, bucket, options.getKey(id))
+                (getSignatureAjaxRequester.REQUEST_TYPE.MULTIPART_ABORT, bucket, host, options.getKey(id))
                 .withUploadId(uploadId);
 
         // Ask the local server to sign the request.  Use this signature to form the Authorization header.
-        getSignatureAjaxRequester.getSignature(id, {signatureConstructor: signatureConstructor}).then(function(response) {
-            headers = signatureConstructor.getHeaders();
-            headers.Authorization = "AWS " + options.signatureSpec.credentialsProvider.get().accessKey + ":" + response.signature;
-            promise.success(headers, signatureConstructor.getEndOfUrl());
-        }, promise.failure);
+        getSignatureAjaxRequester.getSignature(id, {signatureConstructor: signatureConstructor}).then(promise.success, promise.failure);
 
         return promise;
     }
@@ -70,7 +69,6 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
             responseDoc = domParser.parseFromString(xhr.responseText, "application/xml"),
             errorEls = responseDoc.getElementsByTagName("Error"),
             awsErrorMsg;
-
 
         options.log(qq.format("Abort response status {}, body = {}", xhr.status, xhr.responseText));
 
@@ -91,8 +89,7 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
         }
     }
 
-
-    requester = new qq.AjaxRequester({
+    requester = qq.extend(this, new qq.AjaxRequester({
         validMethods: ["DELETE"],
         method: options.method,
         contentType: null,
@@ -104,8 +101,7 @@ qq.s3.AbortMultipartAjaxRequester = function(o) {
         successfulResponseCodes: {
             DELETE: [204]
         }
-    });
-
+    }));
 
     qq.extend(this, {
         /**

@@ -29,15 +29,32 @@ describe("button.js", function () {
         $fixture.append("<div id='foo'></div>");
 
         var button = new qq.UploadButton({
-            element: $fixture.find("#foo")[0]
+            element: $fixture.find("#foo")[0],
+            multiple: true,
+            ios8BrowserCrashWorkaround: false
         });
 
         var input = button.getInput();
-        var $input = $(input);
 
         button.reset();
-        assert.notEqual($input[0], button.getInput(),
+        assert.notEqual(input, button.getInput(),
                "resetting the button should clear the element from the DOM");
+        assert.ok(qq(button.getInput()).hasAttribute("multiple"), "the multiple attribute should be added to new button after reset");
+    });
+
+    it("respects the 'title' option", function() {
+        $fixture.append("<div id='foo'></div>");
+
+        var button = new qq.UploadButton({
+            element: $fixture.find("#foo")[0],
+            title: "foo-bar"
+        });
+
+        var input = button.getInput();
+        assert.equal(button.getInput().title, "foo-bar");
+
+        button.reset();
+        assert.equal(button.getInput().title, "foo-bar");
     });
 
     it("does add an internal tracker ID to the input button, and re-adds it on reset", function() {
@@ -86,7 +103,11 @@ describe("button.js", function () {
             var input;
             var button = new qq.UploadButton({
                 element: $button[0],
-                multiple: false
+                multiple: false,
+                workarounds: {
+                    ios8BrowserCrash: false,
+                    iosEmptyVideos: false
+                }
             });
 
             input = button.getInput();

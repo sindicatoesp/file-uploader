@@ -1,13 +1,14 @@
 /*globals qq, XDomainRequest*/
 /** Generic class for sending non-upload ajax requests and handling the associated responses **/
-qq.AjaxRequester = function (o) {
+qq.AjaxRequester = function(o) {
     "use strict";
 
     var log, shouldParamsBeInQueryString,
         queue = [],
-        requestData = [],
+        requestData = {},
         options = {
-            validMethods: ["POST"],
+            acceptHeader: null,
+            validMethods: ["PATCH", "POST", "PUT"],
             method: "POST",
             contentType: "application/x-www-form-urlencoded",
             maxConnections: 3,
@@ -17,17 +18,20 @@ qq.AjaxRequester = function (o) {
             mandatedParams: {},
             allowXRequestedWithAndCacheControl: true,
             successfulResponseCodes: {
-                "DELETE": [200, 202, 204],
-                "POST": [200, 204],
-                "GET": [200]
+                DELETE: [200, 202, 204],
+                PATCH: [200, 201, 202, 203, 204],
+                POST: [200, 201, 202, 203, 204],
+                PUT: [200, 201, 202, 203, 204],
+                GET: [200]
             },
             cors: {
                 expected: false,
                 sendCredentials: false
             },
-            log: function (str, level) {},
-            onSend: function (id) {},
-            onComplete: function (id, xhrOrXdr, isError) {}
+            log: function(str, level) {},
+            onSend: function(id) {},
+            onComplete: function(id, xhrOrXdr, isError) {},
+            onProgress: null
         };
 
     qq.extend(options, o);
@@ -74,6 +78,11 @@ qq.AjaxRequester = function (o) {
 
             if (xhrOrXdr.withCredentials === undefined) {
                 xhrOrXdr = new XDomainRequest();
+                // Workaround for XDR bug in IE9 - https://social.msdn.microsoft.com/Forums/ie/en-US/30ef3add-767c-4436-b8a9-f1ca19b4812e/ie9-rtm-xdomainrequest-issued-requests-may-abort-if-all-event-handlers-not-specified?forum=iewebdevelopment
+                xhrOrXdr.onload = function() {};
+                xhrOrXdr.onerror = function() {};
+                xhrOrXdr.ontimeout = function() {};
+                xhrOrXdr.onprogress = function() {};
             }
         }
 
@@ -81,15 +90,20 @@ qq.AjaxRequester = function (o) {
     }
 
     // Returns either a new XHR/XDR instance, or an existing one for the associated `File` or `Blob`.
-    function getXhrOrXdr(id, dontCreateIfNotExist) {
-        var xhrOrXdr = requestData[id].xhr;
+    function getXhrOrXdr(id, suppliedXhr) {
+        var xhrOrXdr = requestData[id] && requestData[id].xhr;
 
-        if (!xhrOrXdr && !dontCreateIfNotExist) {
-            if (options.cors.expected) {
-                xhrOrXdr = getCorsAjaxTransport();
+        if (!xhrOrXdr) {
+            if (suppliedXhr) {
+                xhrOrXdr = suppliedXhr;
             }
             else {
-                xhrOrXdr = qq.createXhrInstance();
+                if (options.cors.expected) {
+                    xhrOrXdr = getCorsAjaxTransport();
+                }
+                else {
+                    xhrOrXdr = qq.createXhrInstance();
+                }
             }
 
             requestData[id].xhr = xhrOrXdr;
@@ -136,19 +150,19 @@ qq.AjaxRequester = function (o) {
             mandatedParams = options.mandatedParams,
             params;
 
-        if (options.paramsStore.getParams) {
-            params = options.paramsStore.getParams(id);
+        if (options.paramsStore.get) {
+            params = options.paramsStore.get(id);
         }
 
         if (onDemandParams) {
-            qq.each(onDemandParams, function (name, val) {
+            qq.each(onDemandParams, function(name, val) {
                 params = params || {};
                 params[name] = val;
             });
         }
 
         if (mandatedParams) {
-            qq.each(mandatedParams, function (name, val) {
+            qq.each(mandatedParams, function(name, val) {
                 params = params || {};
                 params[name] = val;
             });
@@ -157,8 +171,8 @@ qq.AjaxRequester = function (o) {
         return params;
     }
 
-    function sendRequest(id) {
-        var xhr = getXhrOrXdr(id),
+    function sendRequest(id, optXhr) {
+        var xhr = getXhrOrXdr(id, optXhr),
             method = options.method,
             params = getParams(id),
             payload = requestData[id].payload,
@@ -166,7 +180,7 @@ qq.AjaxRequester = function (o) {
 
         options.onSend(id);
 
-        url = createUrl(id, params);
+        url = createUrl(id, params, requestData[id].additionalQueryParams);
 
         // XDR and XHR status detection APIs differ a bit.
         if (isXdr(xhr)) {
@@ -176,6 +190,8 @@ qq.AjaxRequester = function (o) {
         else {
             xhr.onreadystatechange = getXhrReadyStateChangeHandler(id);
         }
+
+        registerForUploadProgress(id);
 
         // The last parameter is assumed to be ignored if we are actually using `XDomainRequest`.
         xhr.open(method, url, true);
@@ -196,19 +212,21 @@ qq.AjaxRequester = function (o) {
         else if (shouldParamsBeInQueryString || !params) {
             xhr.send();
         }
-        else if (params && options.contentType.toLowerCase().indexOf("application/x-www-form-urlencoded") >= 0) {
+        else if (params && options.contentType && options.contentType.toLowerCase().indexOf("application/x-www-form-urlencoded") >= 0) {
             xhr.send(qq.obj2url(params, ""));
         }
-        else if (params && options.contentType.toLowerCase().indexOf("application/json") >= 0) {
+        else if (params && options.contentType && options.contentType.toLowerCase().indexOf("application/json") >= 0) {
             xhr.send(JSON.stringify(params));
         }
         else {
             xhr.send(params);
         }
+
+        return xhr;
     }
 
-    function createUrl(id, params) {
-        var endpoint = options.endpointStore.getEndpoint(id),
+    function createUrl(id, params, additionalQueryParams) {
+        var endpoint = options.endpointStore.get(id),
             addToPath = requestData[id].addToPath;
 
         /*jshint -W116,-W041 */
@@ -217,27 +235,42 @@ qq.AjaxRequester = function (o) {
         }
 
         if (shouldParamsBeInQueryString && params) {
-            return qq.obj2url(params, endpoint);
+            endpoint = qq.obj2url(params, endpoint);
         }
-        else {
-            return endpoint;
+
+        if (additionalQueryParams) {
+            endpoint = qq.obj2url(additionalQueryParams, endpoint);
         }
+
+        return endpoint;
     }
 
     // Invoked by the UA to indicate a number of possible states that describe
     // a live `XMLHttpRequest` transport.
     function getXhrReadyStateChangeHandler(id) {
-        return function () {
+        return function() {
             if (getXhrOrXdr(id).readyState === 4) {
                 onComplete(id);
             }
         };
     }
 
+    function registerForUploadProgress(id) {
+        var onProgress = options.onProgress;
+
+        if (onProgress) {
+            getXhrOrXdr(id).upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    onProgress(id, e.loaded, e.total);
+                }
+            };
+        }
+    }
+
     // This will be called by IE to indicate **success** for an associated
     // `XDomainRequest` transported request.
     function getXdrLoadHandler(id) {
-        return function () {
+        return function() {
             onComplete(id);
         };
     }
@@ -245,7 +278,7 @@ qq.AjaxRequester = function (o) {
     // This will be called by IE to indicate **failure** for an associated
     // `XDomainRequest` transported request.
     function getXdrErrorHandler(id) {
-        return function () {
+        return function() {
             onComplete(id, true);
         };
     }
@@ -259,6 +292,8 @@ qq.AjaxRequester = function (o) {
 
         // If XDomainRequest is being used, we can't set headers, so just ignore this block.
         if (!isXdr(xhr)) {
+            options.acceptHeader && xhr.setRequestHeader("Accept", options.acceptHeader);
+
             // Only attempt to add X-Requested-With & Cache-Control if permitted
             if (options.allowXRequestedWithAndCacheControl) {
                 // Do not add X-Requested-With & Cache-Control if this is a cross-origin request
@@ -275,10 +310,10 @@ qq.AjaxRequester = function (o) {
                 xhr.setRequestHeader("Content-Type", options.contentType);
             }
 
-            qq.extend(allHeaders, customHeaders);
+            qq.extend(allHeaders, qq.isFunction(customHeaders) ? customHeaders(id) : customHeaders);
             qq.extend(allHeaders, onDemandHeaders);
 
-            qq.each(allHeaders, function (name, val) {
+            qq.each(allHeaders, function(name, val) {
                 xhr.setRequestHeader(name, val);
             });
         }
@@ -288,10 +323,11 @@ qq.AjaxRequester = function (o) {
         return qq.indexOf(options.successfulResponseCodes[options.method], responseCode) >= 0;
     }
 
-    function prepareToSend(id, addToPath, additionalParams, additionalHeaders, payload) {
+    function prepareToSend(id, optXhr, addToPath, additionalParams, additionalQueryParams, additionalHeaders, payload) {
         requestData[id] = {
             addToPath: addToPath,
             additionalParams: additionalParams,
+            additionalQueryParams: additionalQueryParams,
             additionalHeaders: additionalHeaders,
             payload: payload
         };
@@ -300,17 +336,16 @@ qq.AjaxRequester = function (o) {
 
         // if too many active connections, wait...
         if (len <= options.maxConnections) {
-            sendRequest(id);
+            return sendRequest(id, optXhr);
         }
     }
-
 
     shouldParamsBeInQueryString = options.method === "GET" || options.method === "DELETE";
 
     qq.extend(this, {
         // Start the process of sending the request.  The ID refers to the file associated with the request.
         initTransport: function(id) {
-            var path, params, headers, payload;
+            var path, params, headers, payload, cacheBuster, additionalQueryParams;
 
             return {
                 // Optionally specify the end of the endpoint path for the request.
@@ -328,6 +363,11 @@ qq.AjaxRequester = function (o) {
                     return this;
                 },
 
+                withQueryParams: function(_additionalQueryParams_) {
+                    additionalQueryParams = _additionalQueryParams_;
+                    return this;
+                },
+
                 // Optionally specify additional headers to send along with the request.
                 withHeaders: function(additionalHeaders) {
                     headers = additionalHeaders;
@@ -340,11 +380,25 @@ qq.AjaxRequester = function (o) {
                     return this;
                 },
 
+                // Appends a cache buster (timestamp) to the request URL as a query parameter (only if GET or DELETE)
+                withCacheBuster: function() {
+                    cacheBuster = true;
+                    return this;
+                },
+
                 // Send the constructed request.
-                send: function() {
-                    prepareToSend(id, path, params, headers, payload);
+                send: function(optXhr) {
+                    if (cacheBuster && qq.indexOf(["GET", "DELETE"], options.method) >= 0) {
+                        params.qqtimestamp = new Date().getTime();
+                    }
+
+                    return prepareToSend(id, optXhr, path, params, additionalQueryParams, headers, payload);
                 }
             };
+        },
+
+        canceled: function(id) {
+            dequeue(id);
         }
     });
 };

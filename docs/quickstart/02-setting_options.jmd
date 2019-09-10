@@ -6,14 +6,14 @@
 
 At this point in the tutorial you should have an very simple HTML page with a
 Fine Uploader instance. This section will get you started with setting some of
-the more common options of Fine Uploader.
+the more common options of Fine Uploader. To see _all_ supported options, open the "API" menu at the top of this page.
 
 {{ alert(
 """If you are using Fine Uploader UI, you MUST include a template in your document/markup.  You can
 use the `default.html` file in the `templates` directory bundled with the library and customize it as desired.  See the
 [styling documentation page](../features/styling.html) for more details.""") }}
 
-## Initial Options
+## Basic Options
 
 Fine Uploader comes with a wealth of options. Most importantly, Fine Uploader
 requires you to specify the URL where it should send uploads and server
@@ -24,7 +24,7 @@ this is the path endpoint on your server that will handle upload requests.
 More information on the [`request` option here](../api/options.html).
 
 ```javascript
-$("#fine-uploader").fineUploader({
+var uploader = new qq.FineUploader({
     request: {
         endpoint: '/uploads'
     }
@@ -37,7 +37,7 @@ Debug mode is used to begin diagnosing any application errors. Debug mode can
 be enabled in the options of Fine Uploader:
 
 ```javascript
-$("#fine-uploader").fineUploader({
+var uploader = new qq.FineUploader({
     debug: true,
     request: {
         endpoint: '/uploads'
@@ -57,7 +57,7 @@ Networks can be unreliable, and if your upload fails, Fine Uploader offers the
 ability to retry. The `retry` option can be set to enable this:
 
 ```javascript
-$("#fine-uploader").fineUploader({
+var uploader = new qq.FineUploader({
     request: {
         endpoint: '/uploads'
     },
@@ -82,7 +82,7 @@ options.
 You can also send a delete request via the `deleteFile` [API method](../api/methods.html).
 
 ```javascript
-$("#fine-uploader").fineUploader({
+var uploader = new qq.FineUploader({
     request: {
         endpoint: '/uploads'
     },
@@ -99,10 +99,14 @@ More information on [deleting files here](../features/delete.html).
 
 Now our Fine Uploader page should look something like this:
 
+{{ alert(
+"""There are many ways to load Fine Uploader into your project. The code below creates a global `qq` variable, but there are
+other, better options. Please see [modules feature page](../features/modules.html) for more details.""") }}
+
 ```html
 <html>
   <head>
-      <link href="fineuploader-{{ PKG['version']|e }}.css" rel="stylesheet" type="text/css"/>
+      <link href="fine-uploader-{{ PKG['version']|e }}-new.css" rel="stylesheet" type="text/css"/>
   </head>
   <body>
 
@@ -110,17 +114,72 @@ Now our Fine Uploader page should look something like this:
     <div id="fine-uploader">
     </div>
 
-    <!-- jQuery version 1.10.x (if you are using the jQuery plugin -->
-    <script src="http://code.jquery.com/jquery-1.10.2.min.js" type="text/javascript"></script>
+    <!-- Fine Uploader -->
+    <script src="fine-uploader.min.js" type="text/javascript"></script>
 
-    <!-- Fine Uploader-jQuery -->
-    <script src="jquery.fineuploader-{{ PKG['version']|e }}.min.js" type="text/javascript"></script>
+    <script type="text/template" id="qq-template">
+        <div class="qq-uploader-selector qq-uploader" qq-drop-area-text="Drop files here">
+            <div class="qq-total-progress-bar-container-selector qq-total-progress-bar-container">
+                <div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-total-progress-bar-selector qq-progress-bar qq-total-progress-bar"></div>
+            </div>
+            <div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone>
+                <span class="qq-upload-drop-area-text-selector"></span>
+            </div>
+            <div class="qq-upload-button-selector qq-upload-button">
+                <div>Upload a file</div>
+            </div>
+            <span class="qq-drop-processing-selector qq-drop-processing">
+                <span>Processing dropped files...</span>
+                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
+            </span>
+            <ul class="qq-upload-list-selector qq-upload-list" aria-live="polite" aria-relevant="additions removals">
+                <li>
+                    <div class="qq-progress-bar-container-selector">
+                        <div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-progress-bar-selector qq-progress-bar"></div>
+                    </div>
+                    <span class="qq-upload-spinner-selector qq-upload-spinner"></span>
+                    <img class="qq-thumbnail-selector" qq-max-size="100" qq-server-scale>
+                    <span class="qq-upload-file-selector qq-upload-file"></span>
+                    <span class="qq-edit-filename-icon-selector qq-edit-filename-icon" aria-label="Edit filename"></span>
+                    <input class="qq-edit-filename-selector qq-edit-filename" tabindex="0" type="text">
+                    <span class="qq-upload-size-selector qq-upload-size"></span>
+                    <button type="button" class="qq-btn qq-upload-cancel-selector qq-upload-cancel">Cancel</button>
+                    <button type="button" class="qq-btn qq-upload-retry-selector qq-upload-retry">Retry</button>
+                    <button type="button" class="qq-btn qq-upload-delete-selector qq-upload-delete">Delete</button>
+                    <span role="status" class="qq-upload-status-text-selector qq-upload-status-text"></span>
+                </li>
+            </ul>
+
+            <dialog class="qq-alert-dialog-selector">
+                <div class="qq-dialog-message-selector"></div>
+                <div class="qq-dialog-buttons">
+                    <button type="button" class="qq-cancel-button-selector">Close</button>
+                </div>
+            </dialog>
+
+            <dialog class="qq-confirm-dialog-selector">
+                <div class="qq-dialog-message-selector"></div>
+                <div class="qq-dialog-buttons">
+                    <button type="button" class="qq-cancel-button-selector">No</button>
+                    <button type="button" class="qq-ok-button-selector">Yes</button>
+                </div>
+            </dialog>
+
+            <dialog class="qq-prompt-dialog-selector">
+                <div class="qq-dialog-message-selector"></div>
+                <input type="text">
+                <div class="qq-dialog-buttons">
+                    <button type="button" class="qq-cancel-button-selector">Cancel</button>
+                    <button type="button" class="qq-ok-button-selector">Ok</button>
+                </div>
+            </dialog>
+        </div>
+    </script>
 
     <script>
-    // Wait until the DOM is 'ready'
-    $(document).ready(function () {
-        $("#fine-uploader").fineUploader({
+        var uploader = new qq.FineUploader({
             debug: true,
+            element: document.getElementById('fine-uploader'),
             request: {
                 endpoint: '/uploads'
             },
@@ -132,40 +191,7 @@ Now our Fine Uploader page should look something like this:
                enableAuto: true
             }
         });
-    });
     </script>
-
-    <script type="text/template" id="qq-template">
-        <div class="qq-uploader-selector qq-uploader">
-            <div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone>
-                <span>Drop files here to upload</span>
-            </div>
-            <div class="qq-upload-button-selector qq-upload-button">
-                <div>Upload a file</div>
-            </div>
-            <span class="qq-drop-processing-selector qq-drop-processing">
-                <span>Processing dropped files...</span>
-                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
-            </span>
-            <ul class="qq-upload-list-selector qq-upload-list">
-                <li>
-                  <div class="qq-progress-bar-container-selector">
-                      <div class="qq-progress-bar-selector qq-progress-bar"></div>
-                  </div>
-                  <span class="qq-upload-spinner-selector qq-upload-spinner"></span>
-                  <span class="qq-edit-filename-icon-selector qq-edit-filename-icon"></span>
-                  <span class="qq-upload-file-selector qq-upload-file"></span>
-                  <input class="qq-edit-filename-selector qq-edit-filename" tabindex="0" type="text">
-                  <span class="qq-upload-size-selector qq-upload-size"></span>
-                  <a class="qq-upload-cancel-selector qq-upload-cancel" href="#">Cancel</a>
-                  <a class="qq-upload-retry-selector qq-upload-retry" href="#">Retry</a>
-                  <a class="qq-upload-delete-selector qq-upload-delete" href="#">Delete</a>
-                  <span class="qq-upload-status-text-selector qq-upload-status-text"></span>
-                </li>
-            </ul>
-        </div>
-    </script>
-
   </body>
 </html>
 ```

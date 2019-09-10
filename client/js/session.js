@@ -18,7 +18,6 @@ qq.Session = function(spec) {
 
     qq.extend(options, spec, true);
 
-
     function isJsonResponseValid(response) {
         if (qq.isArray(response)) {
             return true;
@@ -48,7 +47,7 @@ qq.Session = function(spec) {
                         options.addFileRecord(fileItem);
                         return true;
                     }
-                    catch(err) {
+                    catch (err) {
                         someItemsIgnored = true;
                         options.log(err.message, "error");
                     }
@@ -69,9 +68,9 @@ qq.Session = function(spec) {
             refreshCompleteCallback = function(response, success, xhrOrXdr) {
                 handleFileItems(response, success, xhrOrXdr, refreshEffort);
             },
-            requsterOptions = qq.extend({}, options),
+            requesterOptions = qq.extend({}, options),
             requester = new qq.SessionAjaxRequester(
-                qq.extend(requsterOptions, {onComplete: refreshCompleteCallback})
+                qq.extend(requesterOptions, {onComplete: refreshCompleteCallback})
             );
 
         requester.queryServer();

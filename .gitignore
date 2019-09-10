@@ -1,8 +1,11 @@
 .*
+!.editorconfig
 *.ipr
 *~
 .*.sw[a-z]
 *.iml
+*.iws
+!.github
 !.gitignore
 !.jshintrc
 !.jshintignore
@@ -18,9 +21,8 @@ master
 hardcopy*
 selenium.log*
 
-pid.txt
-sauce_connect.log*
-lib/sauce/sauce-connect*
+root-server.PID
+test-resources-server.PID
 
 fine-uploader/
 test/upload/*
@@ -34,3 +36,18 @@ test/_vendor*
 node_modules/
 
 bin/
+
+src
+
+npm-debug.log
+Vagrantfile
+
+test/dev/handlers/s3/composer.lock
+test/dev/handlers/traditional/files
+test/dev/handlers/traditional/chunks
+s3keys.php
+s3keys.sh
+
+test/dev/handlers/vendor/*
+test/dev/handlers/composer.lock
+test/dev/handlers/composer.phar

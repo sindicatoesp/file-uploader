@@ -17,10 +17,13 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
             endpointStore: null,
             paramsStore: null,
             signatureSpec: null,
-            acl: "private",
+            aclStore: null,
             reducedRedundancy: false,
+            serverSideEncryption: false,
             maxConnections: 3,
             getContentType: function(id) {},
+            getBucket: function(id) {},
+            getHost: function(id) {},
             getKey: function(id) {},
             getName: function(id) {},
             log: function(str, level) {}
@@ -30,11 +33,11 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
     qq.extend(options, o);
 
     getSignatureAjaxRequester = new qq.s3.RequestSigner({
+        endpointStore: options.endpointStore,
         signatureSpec: options.signatureSpec,
         cors: options.cors,
         log: options.log
     });
-
 
     /**
      * Determine all headers for the "Initiate MPU" request, including the "Authorization" header, which must be determined
@@ -46,35 +49,41 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
      * @returns {qq.Promise}
      */
     function getHeaders(id) {
-        var bucket = qq.s3.util.getBucket(options.endpointStore.getEndpoint(id)),
+        var bucket = options.getBucket(id),
+            host = options.getHost(id),
             headers = {},
             promise = new qq.Promise(),
             key = options.getKey(id),
             signatureConstructor;
 
-        headers["x-amz-acl"] = options.acl;
+        headers["x-amz-acl"] = options.aclStore.get(id);
 
         if (options.reducedRedundancy) {
             headers[qq.s3.util.REDUCED_REDUNDANCY_PARAM_NAME] = qq.s3.util.REDUCED_REDUNDANCY_PARAM_VALUE;
         }
 
+        if (options.serverSideEncryption) {
+            headers[qq.s3.util.SERVER_SIDE_ENCRYPTION_PARAM_NAME] = qq.s3.util.SERVER_SIDE_ENCRYPTION_PARAM_VALUE;
+        }
+
         headers[qq.s3.util.AWS_PARAM_PREFIX + options.filenameParam] = encodeURIComponent(options.getName(id));
 
-        qq.each(options.paramsStore.getParams(id), function(name, val) {
-            headers[qq.s3.util.AWS_PARAM_PREFIX + name] = encodeURIComponent(val);
+        qq.each(options.paramsStore.get(id), function(name, val) {
+            if (qq.indexOf(qq.s3.util.UNPREFIXED_PARAM_NAMES, name) >= 0) {
+                headers[name] = val;
+            }
+            else {
+                headers[qq.s3.util.AWS_PARAM_PREFIX + name] = encodeURIComponent(val);
+            }
         });
 
         signatureConstructor = getSignatureAjaxRequester.constructStringToSign
-            (getSignatureAjaxRequester.REQUEST_TYPE.MULTIPART_INITIATE, bucket, key)
+            (getSignatureAjaxRequester.REQUEST_TYPE.MULTIPART_INITIATE, bucket, host, key)
             .withContentType(options.getContentType(id))
             .withHeaders(headers);
 
         // Ask the local server to sign the request.  Use this signature to form the Authorization header.
-        getSignatureAjaxRequester.getSignature(id, {signatureConstructor: signatureConstructor}).then(function(response) {
-            headers = signatureConstructor.getHeaders();
-            headers.Authorization = "AWS " + options.signatureSpec.credentialsProvider.get().accessKey + ":" + response.signature;
-            promise.success(headers, signatureConstructor.getEndOfUrl());
-        }, promise.failure);
+        getSignatureAjaxRequester.getSignature(id, {signatureConstructor: signatureConstructor}).then(promise.success, promise.failure);
 
         return promise;
     }
@@ -124,7 +133,7 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
                 options.log(qq.format("Unexplained error with initiate multipart upload request for {}.  Status code {}.", id, status), "error");
             }
 
-            promise.failure("Problem initiating upload request with Amazon.", xhr);
+            promise.failure("Problem initiating upload request.", xhr);
         }
         else {
             options.log(qq.format("Initiate multipart upload request successful for {}.  Upload ID is {}", id, uploadId));
@@ -132,7 +141,7 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
         }
     }
 
-    requester = new qq.AjaxRequester({
+    requester = qq.extend(this, new qq.AjaxRequester({
         method: options.method,
         contentType: null,
         endpointStore: options.endpointStore,
@@ -143,8 +152,7 @@ qq.s3.InitiateMultipartAjaxRequester = function(o) {
         successfulResponseCodes: {
             POST: [200]
         }
-    });
-
+    }));
 
     qq.extend(this, {
         /**

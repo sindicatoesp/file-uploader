@@ -4,8 +4,9 @@ qq.UploadData = function(uploaderProxy) {
 
     var data = [],
         byUuid = {},
-        byStatus = {};
-
+        byStatus = {},
+        byProxyGroupId = {},
+        byBatchId = {};
 
     function getDataByIds(idOrIds) {
         if (qq.isArray(idOrIds)) {
@@ -56,31 +57,56 @@ qq.UploadData = function(uploaderProxy) {
         /**
          * Adds a new file to the data cache for tracking purposes.
          *
-         * @param uuid Initial UUID for this file.
-         * @param name Initial name of this file.
-         * @param size Size of this file, -1 if this cannot be determined
-         * @param status Initial `qq.status` for this file.  If null/undefined, `qq.status.SUBMITTING`.
+         * @param spec Data that describes this file.  Possible properties are:
+         *
+         * - uuid: Initial UUID for this file.
+         * - name: Initial name of this file.
+         * - size: Size of this file, omit if this cannot be determined
+         * - status: Initial `qq.status` for this file.  Omit for `qq.status.SUBMITTING`.
+         * - batchId: ID of the batch this file belongs to
+         * - proxyGroupId: ID of the proxy group associated with this file
+         * - onBeforeStatusChange(fileId): callback that is executed before the status change is broadcast
+         *
          * @returns {number} Internal ID for this file.
          */
-        addFile: function(uuid, name, size, status) {
-            status = status || qq.status.SUBMITTING;
+        addFile: function(spec) {
+            var status = spec.status || qq.status.SUBMITTING,
+                id = data.push({
+                    name: spec.name,
+                    originalName: spec.name,
+                    uuid: spec.uuid,
+                    size: spec.size == null ? -1 : spec.size,
+                    status: status,
+                    file: spec.file
+                }) - 1;
 
-            var id = data.push({
-                name: name,
-                originalName: name,
-                uuid: uuid,
-                size: size,
-                status: status
-            }) - 1;
+            if (spec.batchId) {
+                data[id].batchId = spec.batchId;
+
+                if (byBatchId[spec.batchId] === undefined) {
+                    byBatchId[spec.batchId] = [];
+                }
+                byBatchId[spec.batchId].push(id);
+            }
+
+            if (spec.proxyGroupId) {
+                data[id].proxyGroupId = spec.proxyGroupId;
+
+                if (byProxyGroupId[spec.proxyGroupId] === undefined) {
+                    byProxyGroupId[spec.proxyGroupId] = [];
+                }
+                byProxyGroupId[spec.proxyGroupId].push(id);
+            }
 
             data[id].id = id;
-            byUuid[uuid] = id;
+            byUuid[spec.uuid] = id;
 
             if (byStatus[status] === undefined) {
                 byStatus[status] = [];
             }
             byStatus[status].push(id);
 
+            spec.onBeforeStatusChange && spec.onBeforeStatusChange(id);
             uploaderProxy.onStatusChange(id, null, status);
 
             return id;
@@ -105,10 +131,19 @@ qq.UploadData = function(uploaderProxy) {
             }
         },
 
+        removeFileRef: function(id) {
+            var record = getDataByIds(id);
+
+            if (record) {
+                delete record.file;
+            }
+        },
+
         reset: function() {
             data = [];
             byUuid = {};
             byStatus = {};
+            byBatchId = {};
         },
 
         setStatus: function(id, newStatus) {
@@ -137,6 +172,30 @@ qq.UploadData = function(uploaderProxy) {
 
         updateName: function(id, newName) {
             data[id].name = newName;
+        },
+
+        updateSize: function(id, newSize) {
+            data[id].size = newSize;
+        },
+
+        // Only applicable if this file has a parent that we may want to reference later.
+        setParentId: function(targetId, parentId) {
+            data[targetId].parentId = parentId;
+        },
+
+        getIdsInProxyGroup: function(id) {
+            var proxyGroupId = data[id].proxyGroupId;
+
+            if (proxyGroupId) {
+                return byProxyGroupId[proxyGroupId];
+            }
+            return [];
+        },
+
+        getIdsInBatch: function(id) {
+            var batchId = data[id].batchId;
+
+            return byBatchId[batchId];
         }
     });
 };
@@ -149,6 +208,7 @@ qq.status = {
     CANCELED: "canceled",
     PAUSED: "paused",
     UPLOADING: "uploading",
+    UPLOAD_FINALIZING: "upload finalizing",
     UPLOAD_RETRYING: "retrying upload",
     UPLOAD_SUCCESSFUL: "upload successful",
     UPLOAD_FAILED: "upload failed",

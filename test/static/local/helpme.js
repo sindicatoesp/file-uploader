@@ -46,7 +46,6 @@ var helpme = (function () {
 
         createFineUploader: function (options, request, validation) {
             var defaults = {
-                debug: true,
                 button: null,
                 multiple: true,
                 maxConnections: 3,
@@ -54,7 +53,7 @@ var helpme = (function () {
                 autoUpload: true
             };
             var default_request = {
-                endpoint: "http://localhost:3000/upload",
+                endpoint: "http://localhost:4000/upload",
                 params: {},
                 paramsInBody: true,
                 customHeaders: {},
@@ -65,6 +64,7 @@ var helpme = (function () {
             };
             var default_validation = {
                 allowedExtensions: [],
+                allowEmpty: false,
                 acceptFiles: null,
                 sizeLimit: 0,
                 minSizeLimit: 0,

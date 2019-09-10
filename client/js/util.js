@@ -1,4 +1,5 @@
 /*globals window, navigator, document, FormData, File, HTMLInputElement, XMLHttpRequest, Blob, Storage, ActiveXObject */
+/* jshint -W079 */
 var qq = function(element) {
     "use strict";
 
@@ -10,9 +11,9 @@ var qq = function(element) {
 
         /** Returns the function which detaches attached event */
         attach: function(type, fn) {
-            if (element.addEventListener){
+            if (element.addEventListener) {
                 element.addEventListener(type, fn, false);
-            } else if (element.attachEvent){
+            } else if (element.attachEvent) {
                 element.attachEvent("on" + type, fn);
             }
             return function() {
@@ -21,9 +22,9 @@ var qq = function(element) {
         },
 
         detach: function(type, fn) {
-            if (element.removeEventListener){
+            if (element.removeEventListener) {
                 element.removeEventListener(type, fn, false);
-            } else if (element.attachEvent){
+            } else if (element.attachEvent) {
                 element.detachEvent("on" + type, fn);
             }
             return this;
@@ -43,7 +44,7 @@ var qq = function(element) {
                 return true;
             }
 
-            if (element.contains){
+            if (element.contains) {
                 return element.contains(descendant);
             } else {
                 /*jslint bitwise: true*/
@@ -75,8 +76,8 @@ var qq = function(element) {
             }
 
             /*jshint -W116*/
-            if (styles.opacity != null){
-                if (typeof element.style.opacity !== "string" && typeof(element.filters) !== "undefined"){
+            if (styles.opacity != null) {
+                if (typeof element.style.opacity !== "string" && typeof (element.filters) !== "undefined") {
                     styles.filter = "alpha(opacity=" + Math.round(100 * styles.opacity) + ")";
                 }
             }
@@ -85,13 +86,13 @@ var qq = function(element) {
             return this;
         },
 
-        hasClass: function(name) {
+        hasClass: function(name, considerParent) {
             var re = new RegExp("(^| )" + name + "( |$)");
-            return re.test(element.className);
+            return re.test(element.className) || !!(considerParent && re.test(element.parentNode.className));
         },
 
         addClass: function(name) {
-            if (!qq(element).hasClass(name)){
+            if (!qq(element).hasClass(name)) {
                 element.className += " " + name;
             }
             return this;
@@ -103,30 +104,37 @@ var qq = function(element) {
             return this;
         },
 
-        getByClass: function(className) {
+        getByClass: function(className, first) {
             var candidates,
                 result = [];
 
-            if (element.querySelectorAll){
+            if (first && element.querySelector) {
+                return element.querySelector("." + className);
+            }
+            else if (element.querySelectorAll) {
                 return element.querySelectorAll("." + className);
             }
 
             candidates = element.getElementsByTagName("*");
 
             qq.each(candidates, function(idx, val) {
-                if (qq(val).hasClass(className)){
+                if (qq(val).hasClass(className)) {
                     result.push(val);
                 }
             });
-            return result;
+            return first ? result[0] : result;
+        },
+
+        getFirstByClass: function(className) {
+            return qq(element).getByClass(className, true);
         },
 
         children: function() {
             var children = [],
                 child = element.firstChild;
 
-            while (child){
-                if (child.nodeType === 1){
+            while (child) {
+                if (child.nodeType === 1) {
                     children.push(child);
                 }
                 child = child.nextSibling;
@@ -173,8 +181,54 @@ var qq = function(element) {
     };
 };
 
-(function(){
+(function() {
     "use strict";
+
+    qq.canvasToBlob = function(canvas, mime, quality) {
+        return qq.dataUriToBlob(canvas.toDataURL(mime, quality));
+    };
+
+    qq.dataUriToBlob = function(dataUri) {
+        var arrayBuffer, byteString,
+            createBlob = function(data, mime) {
+                var BlobBuilder = window.BlobBuilder ||
+                        window.WebKitBlobBuilder ||
+                        window.MozBlobBuilder ||
+                        window.MSBlobBuilder,
+                    blobBuilder = BlobBuilder && new BlobBuilder();
+
+                if (blobBuilder) {
+                    blobBuilder.append(data);
+                    return blobBuilder.getBlob(mime);
+                }
+                else {
+                    return new Blob([data], {type: mime});
+                }
+            },
+            intArray, mimeString;
+
+        // convert base64 to raw binary data held in a string
+        if (dataUri.split(",")[0].indexOf("base64") >= 0) {
+            byteString = atob(dataUri.split(",")[1]);
+        }
+        else {
+            byteString = decodeURI(dataUri.split(",")[1]);
+        }
+
+        // extract the MIME
+        mimeString = dataUri.split(",")[0]
+            .split(":")[1]
+            .split(";")[0];
+
+        // write the bytes of the binary string to an ArrayBuffer
+        arrayBuffer = new ArrayBuffer(byteString.length);
+        intArray = new Uint8Array(arrayBuffer);
+        qq.each(byteString, function(idx, character) {
+            intArray[idx] = character.charCodeAt(0);
+        });
+
+        return createBlob(arrayBuffer, mimeString);
+    };
 
     qq.log = function(message, level) {
         if (window.console) {
@@ -198,7 +252,7 @@ var qq = function(element) {
     };
 
     qq.isFunction = function(variable) {
-        return typeof(variable) === "function";
+        return typeof (variable) === "function";
     };
 
     /**
@@ -235,9 +289,8 @@ var qq = function(element) {
             return string.trim();
         }
 
-        return string.replace(/^\s+|\s+$/g,"");
+        return string.replace(/^\s+|\s+$/g, "");
     };
-
 
     /**
      * @param str String to format.
@@ -251,7 +304,7 @@ var qq = function(element) {
 
         qq.each(args, function(idx, val) {
             var strBefore = newStr.substring(0, nextIdxToReplace),
-                strAfter = newStr.substring(nextIdxToReplace+2);
+                strAfter = newStr.substring(nextIdxToReplace + 2);
 
             newStr = strBefore + val + strAfter;
             nextIdxToReplace = newStr.indexOf("{}", nextIdxToReplace + val.length);
@@ -277,17 +330,27 @@ var qq = function(element) {
         return qq.isFile(maybeFileOrInput) || qq.isInput(maybeFileOrInput);
     };
 
-    qq.isInput = function(maybeInput) {
+    qq.isInput = function(maybeInput, notFile) {
+        var evaluateType = function(type) {
+            var normalizedType = type.toLowerCase();
+
+            if (notFile) {
+                return normalizedType !== "file";
+            }
+
+            return normalizedType === "file";
+        };
+
         if (window.HTMLInputElement) {
             if (Object.prototype.toString.call(maybeInput) === "[object HTMLInputElement]") {
-                if (maybeInput.type && maybeInput.type.toLowerCase() === "file") {
+                if (maybeInput.type && evaluateType(maybeInput.type)) {
                     return true;
                 }
             }
         }
         if (maybeInput.tagName) {
             if (maybeInput.tagName.toLowerCase() === "input") {
-                if (maybeInput.type && maybeInput.type.toLowerCase() === "file") {
+                if (maybeInput.type && evaluateType(maybeInput.type)) {
                     return true;
                 }
             }
@@ -297,7 +360,9 @@ var qq = function(element) {
     };
 
     qq.isBlob = function(maybeBlob) {
-        return window.Blob && Object.prototype.toString.call(maybeBlob) === "[object Blob]";
+        if (window.Blob && Object.prototype.toString.call(maybeBlob) === "[object Blob]") {
+            return true;
+        }
     };
 
     qq.isXhrUploadSupported = function() {
@@ -308,7 +373,7 @@ var qq = function(element) {
             input.multiple !== undefined &&
                 typeof File !== "undefined" &&
                 typeof FormData !== "undefined" &&
-                typeof (qq.createXhrInstance()).upload !== "undefined" );
+                typeof (qq.createXhrInstance()).upload !== "undefined");
     };
 
     // Fall back to ActiveX is native XHR is disabled (possible in any version of IE).
@@ -320,18 +385,20 @@ var qq = function(element) {
         try {
             return new ActiveXObject("MSXML2.XMLHTTP.3.0");
         }
-        catch(error) {
+        catch (error) {
             qq.log("Neither XHR or ActiveX are supported!", "error");
             return null;
         }
     };
 
     qq.isFolderDropSupported = function(dataTransfer) {
-        return (dataTransfer.items && dataTransfer.items[0].webkitGetAsEntry);
+        return dataTransfer.items &&
+            dataTransfer.items.length > 0 &&
+            dataTransfer.items[0].webkitGetAsEntry;
     };
 
     qq.isFileChunkingSupported = function() {
-        return !qq.android() && //android's impl of Blob.slice is broken
+        return !qq.androidStock() && //Android's stock browser cannot upload Blobs correctly
             qq.isXhrUploadSupported() &&
             (File.prototype.slice !== undefined || File.prototype.webkitSlice !== undefined || File.prototype.mozSlice !== undefined);
     };
@@ -346,9 +413,8 @@ var qq = function(element) {
         var bytesAsHex = "",
             bytes = new Uint8Array(buffer);
 
-
-        qq.each(bytes, function(idx, byte) {
-            var byteAsHexStr = byte.toString(16);
+        qq.each(bytes, function(idx, byt) {
+            var byteAsHexStr = byt.toString(16);
 
             if (byteAsHexStr.length < 2) {
                 byteAsHexStr = "0" + byteAsHexStr;
@@ -368,6 +434,8 @@ var qq = function(element) {
         fileReader.onload = function() {
             promise.success(qq.arrayBufferToHex(fileReader.result));
         };
+
+        fileReader.onerror = promise.failure;
 
         fileReader.readAsArrayBuffer(initialBlob);
 
@@ -416,10 +484,9 @@ var qq = function(element) {
     };
 
     /**
-     * Searches for a given element in the array, returns -1 if it is not present.
-     * @param {Number} [from] The index at which to begin the search
+     * Searches for a given element (elt) in the array, returns -1 if it is not present.
      */
-    qq.indexOf = function(arr, elt, from){
+    qq.indexOf = function(arr, elt, from) {
         if (arr.indexOf) {
             return arr.indexOf(elt, from);
         }
@@ -431,8 +498,8 @@ var qq = function(element) {
             from += len;
         }
 
-        for (; from < len; from+=1){
-            if (arr.hasOwnProperty(from) && arr[from] === elt){
+        for (; from < len; from += 1) {
+            if (arr.hasOwnProperty(from) && arr[from] === elt) {
                 return from;
             }
         }
@@ -440,51 +507,88 @@ var qq = function(element) {
     };
 
     //this is a version 4 UUID
-    qq.getUniqueId = function(){
+    qq.getUniqueId = function() {
         return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
             /*jslint eqeq: true, bitwise: true*/
-            var r = Math.random()*16|0, v = c == "x" ? r : (r&0x3|0x8);
+            var r = Math.random() * 16 | 0, v = c == "x" ? r : (r & 0x3 | 0x8);
             return v.toString(16);
         });
     };
 
     //
     // Browsers and platforms detection
-
-    qq.ie       = function(){
-        return navigator.userAgent.indexOf("MSIE") !== -1;
+    qq.ie = function() {
+        return navigator.userAgent.indexOf("MSIE") !== -1 ||
+            navigator.userAgent.indexOf("Trident") !== -1;
     };
-    qq.ie7      = function(){
+
+    qq.ie7 = function() {
         return navigator.userAgent.indexOf("MSIE 7") !== -1;
     };
-    qq.ie10     = function(){
+
+    qq.ie8 = function() {
+        return navigator.userAgent.indexOf("MSIE 8") !== -1;
+    };
+
+    qq.ie10 = function() {
         return navigator.userAgent.indexOf("MSIE 10") !== -1;
     };
-    qq.ie11     = function(){
-        return (navigator.userAgent.indexOf("Trident") !== -1 &&
-            navigator.userAgent.indexOf("rv:11") !== -1);
+
+    qq.ie11 = function() {
+        return qq.ie() && navigator.userAgent.indexOf("rv:11") !== -1;
     };
-    qq.safari   = function(){
+
+    qq.edge = function() {
+        return navigator.userAgent.indexOf("Edge") >= 0;
+    };
+
+    qq.safari = function() {
         return navigator.vendor !== undefined && navigator.vendor.indexOf("Apple") !== -1;
     };
-    qq.chrome   = function(){
+
+    qq.chrome = function() {
         return navigator.vendor !== undefined && navigator.vendor.indexOf("Google") !== -1;
     };
-    qq.opera   = function(){
+
+    qq.opera = function() {
         return navigator.vendor !== undefined && navigator.vendor.indexOf("Opera") !== -1;
     };
-    qq.firefox  = function(){
-        return (!qq.ie11() && navigator.userAgent.indexOf("Mozilla") !== -1 && navigator.vendor !== undefined && navigator.vendor === "");
+
+    qq.firefox = function() {
+        return (!qq.edge() && !qq.ie11() && navigator.userAgent.indexOf("Mozilla") !== -1 && navigator.vendor !== undefined && navigator.vendor === "");
     };
-    qq.windows  = function(){
+
+    qq.windows = function() {
         return navigator.platform === "Win32";
     };
-    qq.android = function(){
+
+    qq.android = function() {
         return navigator.userAgent.toLowerCase().indexOf("android") !== -1;
     };
+
+    // We need to identify the Android stock browser via the UA string to work around various bugs in this browser,
+    // such as the one that prevents a `Blob` from being uploaded.
+    qq.androidStock = function() {
+        return qq.android() && navigator.userAgent.toLowerCase().indexOf("chrome") < 0 && navigator.userAgent.toLowerCase().indexOf("firefox") < 0;
+    };
+
+    qq.ios6 = function() {
+        return qq.ios() && navigator.userAgent.indexOf(" OS 6_") !== -1;
+    };
+
     qq.ios7 = function() {
         return qq.ios() && navigator.userAgent.indexOf(" OS 7_") !== -1;
     };
+
+    qq.ios8 = function() {
+        return qq.ios() && navigator.userAgent.indexOf(" OS 8_") !== -1;
+    };
+
+    // iOS 8.0.0
+    qq.ios800 = function() {
+        return qq.ios() && navigator.userAgent.indexOf(" OS 8_0 ") !== -1;
+    };
+
     qq.ios = function() {
         /*jshint -W014 */
         return navigator.userAgent.indexOf("iPad") !== -1
@@ -492,13 +596,25 @@ var qq = function(element) {
             || navigator.userAgent.indexOf("iPhone") !== -1;
     };
 
+    qq.iosChrome = function() {
+        return qq.ios() && navigator.userAgent.indexOf("CriOS") !== -1;
+    };
+
+    qq.iosSafari = function() {
+        return qq.ios() && !qq.iosChrome() && navigator.userAgent.indexOf("Safari") !== -1;
+    };
+
+    qq.iosSafariWebView = function() {
+        return qq.ios() && !qq.iosChrome() && !qq.iosSafari();
+    };
+
     //
     // Events
 
-    qq.preventDefault = function(e){
-        if (e.preventDefault){
+    qq.preventDefault = function(e) {
+        if (e.preventDefault) {
             e.preventDefault();
-        } else{
+        } else {
             e.returnValue = false;
         }
     };
@@ -507,9 +623,9 @@ var qq = function(element) {
      * Creates and returns element from html string
      * Uses innerHTML to create an element
      */
-    qq.toElement = (function(){
+    qq.toElement = (function() {
         var div = document.createElement("div");
-        return function(html){
+        return function(html) {
             div.innerHTML = html;
             var element = div.firstChild;
             div.removeChild(element);
@@ -595,15 +711,15 @@ var qq = function(element) {
      * @param  String current querystring-part
      * @return String encoded querystring
      */
-    qq.obj2url = function(obj, temp, prefixDone){
+    qq.obj2url = function(obj, temp, prefixDone) {
         /*jshint laxbreak: true*/
         var uristrings = [],
             prefix = "&",
-            add = function(nextObj, i){
+            add = function(nextObj, i) {
                 var nextTemp = temp
                     ? (/\[\]$/.test(temp)) // prevent double-encoding
                     ? temp
-                    : temp+"["+i+"]"
+                    : temp + "[" + i + "]"
                     : i;
                 if ((nextTemp !== "undefined") && (i !== "undefined")) {
                     uristrings.push(
@@ -620,11 +736,11 @@ var qq = function(element) {
             prefix = (/\?/.test(temp)) ? (/\?$/.test(temp)) ? "" : "&" : "?";
             uristrings.push(temp);
             uristrings.push(qq.obj2url(obj));
-        } else if ((Object.prototype.toString.call(obj) === "[object Array]") && (typeof obj !== "undefined") ) {
+        } else if ((Object.prototype.toString.call(obj) === "[object Array]") && (typeof obj !== "undefined")) {
             qq.each(obj, function(idx, val) {
                 add(val, idx);
             });
-        } else if ((typeof obj !== "undefined") && (obj !== null) && (typeof obj === "object")){
+        } else if ((typeof obj !== "undefined") && (obj !== null) && (typeof obj === "object")) {
             qq.each(obj, function(prop, val) {
                 add(val, prop);
             });
@@ -680,72 +796,6 @@ var qq = function(element) {
         });
 
         return form;
-    };
-
-    qq.setCookie = function(name, value, days) {
-        var date = new Date(),
-            expires = "";
-
-        if (days) {
-            date.setTime(date.getTime()+(days*24*60*60*1000));
-            expires = "; expires="+date.toGMTString();
-        }
-
-        document.cookie = name+"="+value+expires+"; path=/";
-    };
-
-    qq.getCookie = function(name) {
-        var nameEQ = name + "=",
-            ca = document.cookie.split(";"),
-            cookie;
-
-        qq.each(ca, function(idx, part) {
-            /*jshint -W116 */
-            var cookiePart = part;
-            while (cookiePart.charAt(0) == " ") {
-                cookiePart = cookiePart.substring(1, cookiePart.length);
-            }
-
-            if (cookiePart.indexOf(nameEQ) === 0) {
-                cookie = cookiePart.substring(nameEQ.length, cookiePart.length);
-                return false;
-            }
-        });
-
-        return cookie;
-    };
-
-    qq.getCookieNames = function(regexp) {
-        var cookies = document.cookie.split(";"),
-            cookieNames = [];
-
-        qq.each(cookies, function(idx, cookie) {
-            cookie = qq.trimStr(cookie);
-
-            var equalsIdx = cookie.indexOf("=");
-
-            if (cookie.match(regexp)) {
-                cookieNames.push(cookie.substr(0, equalsIdx));
-            }
-        });
-
-        return cookieNames;
-    };
-
-    qq.deleteCookie = function(name) {
-        qq.setCookie(name, "", -1);
-    };
-
-    qq.areCookiesEnabled = function() {
-        var randNum = Math.random() * 100000,
-            name = "qqCookieTest:" + randNum;
-        qq.setCookie(name, 1);
-
-        if (qq.getCookie(name)) {
-            qq.deleteCookie(name);
-            return true;
-        }
-        return false;
     };
 
     /**

@@ -1,4 +1,4 @@
-/* globals describe, beforeEach, $fixture, qq, assert, it, qqtest, helpme, purl */
+/* globals describe, beforeEach, afterEach, $fixture, qq, assert, it, qqtest, helpme, purl */
 if (qqtest.canDownloadFileAsBlob) {
     describe("simple file uploads, mocked server/XHR", function() {
         "use strict";
@@ -39,6 +39,164 @@ if (qqtest.canDownloadFileAsBlob) {
             return uploader;
         }
 
+        it("respects custom request.method", function(done) {
+            var uploader = new qq.FineUploaderBasic({
+                autoUpload: false,
+                request: {
+                    endpoint: testUploadEndpoint,
+                    method: "PUT"
+                }
+            });
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request,
+                    requestParams;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+                request = fileTestHelper.getRequests()[0];
+
+                assert.equal(request.method, "PUT", "Wrong request method");
+
+                fileTestHelper.getRequests()[0].respond(200, null, JSON.stringify({success: true}));
+
+                done();
+            });
+        });
+
+        it("treats upload w/ status of 201 as success", function(done) {
+            assert.expect(12, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+
+                fileTestHelper.getRequests()[0].respond(201, null, JSON.stringify({success: true}));
+            });
+        });
+
+        it("treats upload w/ status of 202 as success", function(done) {
+            assert.expect(12, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+
+                fileTestHelper.getRequests()[0].respond(202, null, JSON.stringify({success: true}));
+            });
+        });
+
+        it("treats upload w/ status of 203 as success", function(done) {
+            assert.expect(12, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+
+                fileTestHelper.getRequests()[0].respond(203, null, JSON.stringify({success: true}));
+            });
+        });
+
+        it("treats upload w/ status of 204 as success", function(done) {
+            assert.expect(12, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+
+                fileTestHelper.getRequests()[0].respond(204, null, JSON.stringify({success: true}));
+            });
+        });
+
+        it("treats upload w/ status of 204 as success", function(done) {
+            assert.expect(12, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request;
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+
+                fileTestHelper.getRequests()[0].respond(204, null, JSON.stringify({success: true}));
+            });
+        });
+
+        it("handles a simple successful single file upload request correctly where a file input element is passed into addFiles", function(done) {
+            assert.expect(18, done);
+
+            var uploader = getSimpleUploader(false, true);
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request,
+                    requestParams,
+                    fakeFileInput = {
+                        tagName: "input",
+                        type: "file",
+                        files: [{name: "test", blob: blob}]
+                    };
+
+                uploader.addFiles(fakeFileInput);
+                uploader.uploadStoredFiles();
+
+                assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
+                request = fileTestHelper.getRequests()[0];
+                requestParams = request.requestBody.fields;
+
+                assert.equal(requestParams.qquuid, uploader.getUuid(0), "Wrong UUID param sent with request");
+                assert.equal(requestParams.qqfilename, uploader.getName(0), "Wrong filename param sent with request");
+                assert.equal(requestParams.qqtotalfilesize, uploader.getSize(0), "Wrong file size param sent with request");
+                assert.ok(qq.isBlob(requestParams.qqfile), "File is incorrect");
+                assert.equal(request.method, "POST", "Wrong request method");
+                assert.equal(request.url, testUploadEndpoint, "Wrong request url");
+
+                fileTestHelper.getRequests()[0].respond(200, null, JSON.stringify({success: true}));
+            });
+        });
+
         it("handles a simple successful single MPE file upload request correctly", function(done) {
             assert.expect(18, done);
 
@@ -50,7 +208,7 @@ if (qqtest.canDownloadFileAsBlob) {
                 var request,
                     requestParams;
 
-                uploader.addBlobs({name: "test", blob: blob});
+                uploader.addFiles({name: "test", blob: blob});
                 uploader.uploadStoredFiles();
 
                 assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
@@ -78,7 +236,7 @@ if (qqtest.canDownloadFileAsBlob) {
 
                 var request, purlUrl;
 
-                uploader.addBlobs({name: "test", blob: blob});
+                uploader.addFiles({name: "test", blob: blob});
 
                 assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
                 request = fileTestHelper.getRequests()[0];
@@ -115,7 +273,7 @@ if (qqtest.canDownloadFileAsBlob) {
 
                 var request, requestParams;
 
-                uploader.addBlobs(blob);
+                uploader.addFiles(blob);
 
                 assert.equal(fileTestHelper.getRequests().length, 1, "Wrong # of requests");
                 request = fileTestHelper.getRequests()[0];
@@ -137,7 +295,7 @@ if (qqtest.canDownloadFileAsBlob) {
             });
 
             qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
-                uploader.addBlobs(blob);
+                uploader.addFiles(blob);
                 uploader.setUuid(0, "123");
                 assert.equal(uploader.getUuid(0), "123");
             });
@@ -162,7 +320,7 @@ if (qqtest.canDownloadFileAsBlob) {
             qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
                 fileTestHelper.mockXhr();
 
-                uploader.addBlobs(blob);
+                uploader.addFiles(blob);
 
                 fileTestHelper.getRequests()[0].respond(200, null, JSON.stringify({success: true, newUuid: newUuid}));
             });
@@ -178,7 +336,7 @@ if (qqtest.canDownloadFileAsBlob) {
             });
 
             qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
-                uploader.addBlobs(blob);
+                uploader.addFiles(blob);
                 uploader.setName(0, newName);
                 assert.equal(uploader.getName(0), newName);
             });
@@ -206,7 +364,7 @@ if (qqtest.canDownloadFileAsBlob) {
                 qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
                     fileTestHelper.mockXhr();
 
-                    uploader.addBlobs([blob, blob]);
+                    uploader.addFiles([blob, blob]);
                     setTimeout(function() {
                         autoUpload || uploader.uploadStoredFiles();
                     }, 0);
@@ -219,6 +377,195 @@ if (qqtest.canDownloadFileAsBlob) {
 
             it("reports 'waiting' files as QUEUED in manual upload mode after call to uploadStoredFiles()", function(done) {
                 runQueuedStatusTest(false, done);
+            });
+        });
+
+        it("handles an empty array of files or blobs appropriately", function(done) {
+            assert.expect(2, done);
+
+            var uploader = new qq.FineUploaderBasic({
+                callbacks: {
+                    onError: function(id) {
+                        assert.ok(true);
+                    }
+                }
+            });
+
+            uploader.addFiles([]);
+            uploader.addFiles([]);
+        });
+
+        it("marks an upload as failed if the status indicates failure, even if the response body indicates success", function(done) {
+            assert.expect(2, done);
+
+            var uploader = new qq.FineUploaderBasic({
+                request: {
+                    endpoint: "/test/endpoint"
+                },
+                callbacks: {
+                    onComplete: function(id, name, response, xhr) {
+                        assert.ok(!response.success);
+                        assert.equal(uploader.getUploads()[0].status, qq.status.UPLOAD_FAILED);
+                    }
+                }
+            });
+
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                uploader.addFiles(blob);
+                fileTestHelper.getRequests()[0].respond(500, null, JSON.stringify({success: true}));
+            });
+        });
+
+        describe("canvas uploading", function() {
+            var origCanvasToBlob;
+
+            beforeEach(function() {
+                origCanvasToBlob = qq.canvasToBlob;
+            });
+
+            afterEach(function() {
+                qq.canvasToBlob = origCanvasToBlob;
+            });
+
+            it("attempts to convert the passed canvas to a blob", function(done) {
+                var uploader = new qq.FineUploaderBasic({
+                        request: {
+                            endpoint: "/test/endpoint"
+                        }
+                    }),
+                    canvas = document.createElement("canvas");
+
+                qq.canvasToBlob = function(passedCanvas, mime, quality) {
+                    assert.equal(passedCanvas, canvas);
+                    assert.ok(!mime);
+                    assert.ok(!quality);
+
+                    uploader._handleNewFile = function(file) {
+                        done();
+                    };
+                };
+
+                uploader.addFiles(canvas);
+            });
+
+            it("attempts to convert the passed canvas to a blob, respecting type, quality, and name properties", function(done) {
+                var uploader = new qq.FineUploaderBasic({
+                        request: {
+                            endpoint: "/test/endpoint"
+                        }
+                    }),
+                    canvas = document.createElement("canvas"),
+                    canvasWrapper = {
+                        canvas: canvas,
+                        type: "foobar",
+                        quality: 3,
+                        name: "mycanvas"
+                    };
+
+                qq.canvasToBlob = function(passedCanvas, mime, quality) {
+                    assert.equal(passedCanvas, canvas);
+                    assert.equal(mime, "foobar");
+                    assert.equal(quality, 0.03);
+
+                    uploader._handleNewFile = function(file) {
+                        assert.equal(file.name, "mycanvas");
+                        done();
+                    };
+                };
+
+                uploader.addFiles(canvasWrapper);
+            });
+        });
+        
+        it("removes reference to a Blob via API", function(done) {
+            qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function(blob) {
+                fileTestHelper.mockXhr();
+
+                var request,
+                    uploader = new qq.FineUploaderBasic({
+                        autoUpload: false,
+                        request: { endpoint: testUploadEndpoint },
+                        callbacks: {
+                            onComplete: function(id) {
+                                assert.ok(uploader.getFile(id));
+                                uploader.removeFileRef(id);
+                                assert.ok(!uploader.getFile(id));
+                                done();
+                            }
+                        }
+                    });
+
+                uploader.addFiles({name: "test", blob: blob});
+                uploader.uploadStoredFiles();
+
+                fileTestHelper.getRequests()[0].respond(200, null, JSON.stringify({success: true}));
+            });
+        });
+
+        describe("onUpload w/ Promise return value", function() {
+            function testOnUploadLogic(callbacks) {
+                var uploader = new qq.FineUploaderBasic({
+                    request: {
+                        endpoint: testUploadEndpoint
+                    },
+                    callbacks: callbacks
+                });
+
+                qqtest.downloadFileAsBlob("up.jpg", "image/jpeg").then(function (blob) {
+                    fileTestHelper.mockXhr();
+                    uploader.addFiles({name: "test", blob: blob});
+                });
+            }
+
+            it("pauses upload if Promise resolves with { pause: true }", function(done) {
+                testOnUploadLogic({
+                    onUpload: function () {
+                        return window.Promise.resolve({ pause: true });
+                    },
+
+                    onStatusChange: function (id, oldStatus, newStatus) {
+                        if (id === 0 &&
+                            oldStatus === qq.status.UPLOADING &&
+                            newStatus === qq.status.PAUSED
+                        ) {
+                            done();
+                        }
+                    }
+                });
+            });
+
+            it("fails upload if Promise is rejected", function(done) {
+                testOnUploadLogic({
+                    onUpload: function () {
+                        return window.Promise.reject();
+                    },
+
+                    onComplete: function (id, name, response) {
+                        if (id === 0 && !response.success) {
+                            done();
+                        }
+                    }
+                });
+            });
+
+            it("sends upload request when Promise is resolved", function(done) {
+                testOnUploadLogic({
+                    onUpload: function () {
+                        setTimeout(function() {
+                            fileTestHelper.getRequests()[0].respond(200, null, JSON.stringify({success: true}));
+                        }, 10);
+
+                        return window.Promise.resolve();
+                    },
+
+                    onComplete: function (id, name, response) {
+                        if (id === 0 && response.success) {
+                            done();
+                        }
+                    }
+                });
             });
         });
     });

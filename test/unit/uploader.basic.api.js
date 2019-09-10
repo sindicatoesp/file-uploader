@@ -1,4 +1,4 @@
-/* globals describe, beforeEach, afterEach, $fixture, qq, assert, it, qqtest, helpme, purl */
+/* globals describe, beforeEach, afterEach, $fixture, qq, assert, it, qqtest, helpme, purl, Q */
 describe("uploader.basic.api.js", function () {
     "use strict";
 
@@ -20,12 +20,14 @@ describe("uploader.basic.api.js", function () {
                 {
                     element: $btn1[0],
                     multiple: false,
-                    accept: ""
+                    accept: "",
+                    fileInputTitle: "title1"
                 },
                 {
                     element: $btn2[0],
                     multiple: false,
-                    accept: ""
+                    accept: "",
+                    fileInputTitle: "title2"
                 }
             ]
         });
@@ -45,32 +47,9 @@ describe("uploader.basic.api.js", function () {
                 assert.ok(!input.hasAttribute("multiple"));
                 assert.ok(!input.hasAttribute("accept"));
             }
+            assert.equal(fineuploader._buttons[0].getInput().title, "title1");
+            assert.equal(fineuploader._buttons[1].getInput().title, "title2");
         }
-    });
-
-    describe("formatFileName", function () {
-
-        beforeEach(function () {
-            fineuploader = new qq.FineUploaderBasic({
-                element: $uploader[0]
-            });
-        });
-
-        it("shortens a long (> 33 chars) filename", function () {
-            var filename = "EWDPYZFAMDDOLNQEJXVUEWDPYZFAMDDOLN";
-            var filename_fmt = fineuploader._options.formatFileName(filename);
-            assert.equal(filename_fmt,
-                "EWDPYZFAMDDOLNQEJXV...EWDPYZFAMDDOLN",
-                "expect filename to be shortened");
-        });
-
-        it("refuses to shorten a short (<= 33 chars) filename", function () {
-            var filename = "abcdefg";
-            var filename_fmt = fineuploader._options.formatFileName(filename);
-            assert.equal(filename_fmt,
-                "abcdefg",
-                "expect filename to NOT be shortened");
-        });
     });
 
     describe("setParams", function () {
@@ -84,55 +63,25 @@ describe("uploader.basic.api.js", function () {
         it("resets", function () {
             var params = {"hello": "world"};
             fineuploader.setParams(params, "foo");
-            assert.deepEqual(fineuploader._paramsStore.getParams("foo"), params,
+            assert.deepEqual(fineuploader._paramsStore.get("foo"), params,
                 "the request parameters should be set");
             fineuploader._paramsStore.reset();
-            assert.deepEqual(fineuploader._paramsStore.getParams("foo"), {},
+            assert.deepEqual(fineuploader._paramsStore.get("foo"), {},
                 "the request parameters should be reset");
-        });
-
-        it("set simple key-value parameters", function () {
-            var params = {"hello": "world"};
-            fineuploader.setParams(params);
-            assert.deepEqual(fineuploader._options.request.params, params,
-                "the request parameters should be set");
-        });
-
-        it("set nested objects as parameters", function () {
-            var params = {
-                "hello": {
-                    "confusing": "world"
-                }
-            };
-            fineuploader.setParams(params);
-            assert.deepEqual(fineuploader._options.request.params, params,
-                "the request parameters should be set");
-        });
-
-        it("set function return values as parameters", function () {
-            var params = {
-                hello_func: function () {
-                    return 42;
-                }
-            };
-
-            fineuploader.setParams(params);
-            assert.deepEqual(fineuploader._options.request.params, params,
-                "the request parameters should be set");
         });
 
         it("allows changing parameters for a specific file id", function () {
             var params = {"hello": "world"};
             fineuploader.setParams(params, "foo");
-            assert.deepEqual(fineuploader._paramsStore.getParams("foo"), params,
+            assert.deepEqual(fineuploader._paramsStore.get("foo"), params,
                 "the request parameters should be set");
 
         });
 
-        it("allows changing paramters for all files", function () {
+        it("allows changing parameters for all files", function () {
             var params = {"hello": "world"};
             fineuploader.setParams(params);
-            assert.deepEqual(fineuploader._paramsStore.getParams(), params,
+            assert.deepEqual(fineuploader._paramsStore.get(), params,
                 "the request parameters should be set");
         });
 
@@ -154,19 +103,19 @@ describe("uploader.basic.api.js", function () {
         it("resets", function () {
             var endpoint = "/endpoint";
             fineuploader.setEndpoint(endpoint, 0);
-            var ep = fineuploader._endpointStore.getEndpoint(0);
+            var ep = fineuploader._endpointStore.get(0);
             assert.deepEqual(ep,
                 endpoint,
                 "the endpoint should be set");
             fineuploader._endpointStore.reset();
-            ep = fineuploader._endpointStore.getEndpoint(0);
+            ep = fineuploader._endpointStore.get(0);
             assert.deepEqual(ep, fineuploader._options.request.endpoint, "the endpoint should be reset");
         });
 
         it("set a new endpoint", function () {
             var endpoint = "/endpoint";
             fineuploader.setEndpoint(endpoint, 0);
-            var ep = fineuploader._endpointStore.getEndpoint(0);
+            var ep = fineuploader._endpointStore.get(0);
 
             assert.deepEqual(ep, endpoint, "the endpoint should be set");
 
@@ -276,17 +225,9 @@ describe("uploader.basic.api.js", function () {
             done();
         });
 
-        it ("handles successful promissory callbacks", function(done) {
-            var callback = function() {
-                    var promise = new qq.Promise();
-
-                    setTimeout(function() {
-                        promise.success("foobar");
-                    }, 100);
-
-                    return promise;
-                },
-                spec = {
+        describe("handles successful promissory callbacks", function() {
+            function runTest(callback, done) {
+                var spec = {
                     callback: callback,
                     onSuccess: function(passedVal) {
                         assert.deepEqual(passedVal, "foobar");
@@ -298,20 +239,39 @@ describe("uploader.basic.api.js", function () {
                     }
                 };
 
-            assert.ok(fineuploader._handleCheckedCallback(spec) instanceof qq.Promise);
+                fineuploader._handleCheckedCallback(spec);
+            }
+
+            it ("qq.Promise", function(done) {
+                var callback = function() {
+                        var promise = new qq.Promise();
+
+                        setTimeout(function() {
+                            promise.success("foobar");
+                        }, 100);
+
+                        return promise;
+                    };
+
+                runTest(callback, done);
+            });
+
+            it ("Q.js", function(done) {
+                var callback = function() {
+                        return Q.Promise(function(resolve) {
+                            setTimeout(function() {
+                                resolve("foobar");
+                            }, 100);
+                        });
+                    };
+
+                runTest(callback, done);
+            });
         });
 
-        it ("handles failed promissory callbacks", function(done) {
-            var callback = function() {
-                    var promise = new qq.Promise();
-
-                    setTimeout(function() {
-                        promise.failure();
-                    }, 100);
-
-                    return promise;
-                },
-                spec = {
+        describe("handles failed promissory callbacks", function() {
+            function runTest(callback, done) {
+                var spec = {
                     callback: callback,
                     onSuccess: function() {
                         assert.fail();
@@ -322,7 +282,34 @@ describe("uploader.basic.api.js", function () {
                     }
                 };
 
-            assert.ok(fineuploader._handleCheckedCallback(spec) instanceof qq.Promise);
+                fineuploader._handleCheckedCallback(spec);
+            }
+
+            it ("qq.Promise", function(done) {
+                var callback = function() {
+                        var promise = new qq.Promise();
+
+                        setTimeout(function() {
+                            promise.failure();
+                        }, 100);
+
+                        return promise;
+                    };
+
+                runTest(callback, done);
+            });
+
+            it ("Q.js", function(done) {
+                var callback = function() {
+                    return Q.Promise(function (resolve, reject) {
+                        setTimeout(function () {
+                            reject();
+                        }, 100);
+                    });
+                };
+
+                runTest(callback, done);
+            });
         });
 
         it("does auto retry if upload is not paused", function() {
@@ -382,12 +369,168 @@ describe("uploader.basic.api.js", function () {
             assert.equal(uploader.getRemainingAllowedItems(), null);
         });
 
-        it ("reports the correct number of remaining items w/ an item limit", function() {
+        it("reports the correct number of remaining items w/ an item limit", function() {
             setupUploader(3);
             uploader._netUploadedOrQueued = 2;
 
             assert.equal(uploader.getRemainingAllowedItems(), 1);
         });
+
+        it("allows the itemLimit to be adjusted via the API", function() {
+            setupUploader(3);
+            uploader._netUploadedOrQueued = 2;
+
+            uploader.setItemLimit(5);
+
+            assert.equal(uploader.getRemainingAllowedItems(), 3);
+        });
     });
 
+    describe("_createStore", function() {
+        var uploader = new qq.FineUploaderBasic({});
+
+        it("handles non-object stores properly", function() {
+            var initVal = "foo",
+                store = uploader._createStore(initVal);
+
+            assert.equal(store.get(100), initVal);
+            assert.equal(store.get(), initVal);
+
+            store.set("bar", 2);
+            store.set("three", 3);
+            assert.equal(store.get(2), "bar");
+            assert.equal(store.get(3), "three");
+            assert.equal(store.get(100), initVal);
+            assert.equal(store.get(), initVal);
+
+            store.remove(3);
+            assert.equal(store.get(2), "bar");
+            assert.equal(store.get(3), initVal);
+            assert.equal(store.get(100), initVal);
+            assert.equal(store.get(), initVal);
+
+            store.set("foobar");
+            assert.equal(store.get(2), "foobar");
+            assert.equal(store.get(3), "foobar");
+            assert.equal(store.get(100), "foobar");
+            assert.equal(store.get(), "foobar");
+
+            store.reset();
+            assert.equal(store.get(2), initVal);
+            assert.equal(store.get(3), initVal);
+            assert.equal(store.get(100), initVal);
+            assert.equal(store.get(), initVal);
+        });
+
+        it("handles object stores properly", function() {
+            var initVal = {foo: "bar"},
+                a = {a: "a"},
+                two = {two: "two"},
+                three = {three: "three"},
+                store = uploader._createStore(initVal);
+
+            assert.deepEqual(store.get(100), initVal);
+            assert.deepEqual(store.get(), initVal);
+
+            store.set(two, 2);
+            store.set(three, 3);
+            assert.deepEqual(store.get(2), two);
+            assert.deepEqual(store.get(3), three);
+            assert.deepEqual(store.get(100), initVal);
+            assert.deepEqual(store.get(), initVal);
+
+            three.test = "123";
+            assert.notDeepEqual(store.get(3), three);
+
+            store.remove(3);
+            assert.deepEqual(store.get(2), two);
+            assert.deepEqual(store.get(3), initVal);
+            assert.deepEqual(store.get(100), initVal);
+            assert.deepEqual(store.get(), initVal);
+
+            store.set(a);
+            assert.deepEqual(store.get(2), a);
+            assert.deepEqual(store.get(3), a);
+            assert.deepEqual(store.get(100), a);
+            assert.deepEqual(store.get(), a);
+
+            a.test = "123";
+            assert.notDeepEqual(store.get(2), a);
+
+            store.reset();
+            assert.deepEqual(store.get(2), initVal);
+            assert.deepEqual(store.get(3), initVal);
+            assert.deepEqual(store.get(100), initVal);
+            assert.deepEqual(store.get(), initVal);
+        });
+    });
+
+    describe("_handleNewFile", function() {
+        it("ignores size property if passing a file input", function() {
+            var uploader = new qq.FineUploaderBasic({}),
+                fileInput = document.createElement("input");
+
+            uploader._customNewFileHandler = function(actualFile, name, uuid, size) {
+                assert.equal(size, -1);
+            };
+
+            fileInput.type = "file";
+
+            uploader._handleNewFile(fileInput, 0, []);
+        });
+    });
+
+    describe("_formatSize", function() {
+        beforeEach(function () {
+            fineuploader = new qq.FineUploaderBasic();
+        });
+
+        it("formats 0 bytes properly", function() {
+            var formattedSize = fineuploader._formatSize(0);
+            assert.equal(formattedSize, "0kB");
+        });
+
+        it("formats kB properly", function() {
+            var formattedSize = fineuploader._formatSize(789);
+            assert.equal(formattedSize, "0.8kB");
+        });
+
+        it("formats MB properly", function() {
+            var formattedSize = fineuploader._formatSize(2123456);
+            assert.equal(formattedSize, "2.1MB");
+        });
+
+        it("formats GB properly", function() {
+            var formattedSize = fineuploader._formatSize(9602123456);
+            assert.equal(formattedSize, "9.6GB");
+        });
+    });
+
+    describe("_validateFileOrBlobData", function() {
+        var originalFileOrInput = qq.isFileOrInput;
+        beforeEach(function () {
+            fineuploader = new qq.FineUploaderBasic();
+        });
+        afterEach(function() {
+            qq.isFileOrInput = originalFileOrInput;
+        });
+
+        it("fails if file is empty and allowEmpty is false", function(done) {
+            qq.isFileOrInput = function() { return true; };
+            fineuploader._fileOrBlobRejected = function() {};
+            var validationDescriptor = { size: 0 };
+
+            fineuploader._validateFileOrBlobData({}, validationDescriptor)
+                .then(function() { assert.fail(); }, function() { done(); });
+        });
+
+        it("passes if file is empty and allowEmpty is true", function(done) {
+            fineuploader._options.validation.allowEmpty = true;
+            qq.isFileOrInput = function() { return true; };
+            var validationDescriptor = { size: 0 };
+
+            fineuploader._validateFileOrBlobData({}, validationDescriptor)
+                .then(function() { done(); }, function() { assert.fail(); });
+        });
+    });
 });

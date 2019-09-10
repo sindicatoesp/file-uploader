@@ -17,10 +17,24 @@ qq.Templating = function(spec) {
         THUMBNAIL_SERVER_SCALE_ATTR = "qq-server-scale",
         // This variable is duplicated in the DnD module since it can function as a standalone as well
         HIDE_DROPZONE_ATTR = "qq-hide-dropzone",
+        DROPZPONE_TEXT_ATTR = "qq-drop-area-text",
+        IN_PROGRESS_CLASS = "qq-in-progress",
+        HIDDEN_FOREVER_CLASS = "qq-hidden-forever",
+        fileBatch = {
+            content: document.createDocumentFragment(),
+            map: {}
+        },
         isCancelDisabled = false,
+        generatedThumbnails = 0,
+        thumbnailQueueMonitorRunning = false,
+        thumbGenerationQueue = [],
         thumbnailMaxSize = -1,
         options = {
             log: null,
+            limits: {
+                maxThumbs: 0,
+                timeBetweenThumbs: 750
+            },
             templateIdOrEl: "qq-template",
             containerEl: null,
             fileContainerEl: null,
@@ -41,10 +55,19 @@ qq.Templating = function(spec) {
         },
         selectorClasses = {
             button: "qq-upload-button-selector",
+            alertDialog: "qq-alert-dialog-selector",
+            dialogCancelButton: "qq-cancel-button-selector",
+            confirmDialog: "qq-confirm-dialog-selector",
+            dialogMessage: "qq-dialog-message-selector",
+            dialogOkButton: "qq-ok-button-selector",
+            promptDialog: "qq-prompt-dialog-selector",
+            uploader: "qq-uploader-selector",
             drop: "qq-upload-drop-area-selector",
             list: "qq-upload-list-selector",
             progressBarContainer: "qq-progress-bar-container-selector",
             progressBar: "qq-progress-bar-selector",
+            totalProgressBarContainer: "qq-total-progress-bar-container-selector",
+            totalProgressBar: "qq-total-progress-bar-selector",
             file: "qq-upload-file-selector",
             spinner: "qq-upload-spinner-selector",
             size: "qq-upload-size-selector",
@@ -56,6 +79,7 @@ qq.Templating = function(spec) {
             statusText: "qq-upload-status-text-selector",
             editFilenameInput: "qq-edit-filename-selector",
             editNameIcon: "qq-edit-filename-icon-selector",
+            dropText: "qq-upload-drop-area-text-selector",
             dropProcessing: "qq-drop-processing-selector",
             dropProcessingSpinner: "qq-drop-processing-spinner-selector",
             thumbnail: "qq-thumbnail-selector"
@@ -66,330 +90,542 @@ qq.Templating = function(spec) {
         log,
         isEditElementsExist,
         isRetryElementExist,
-        templateHtml,
+        templateDom,
         container,
         fileList,
         showThumbnails,
-        serverScale;
+        serverScale,
 
-    /**
-     * Grabs the HTML from the script tag holding the template markup.  This function will also adjust
-     * some internally-tracked state variables based on the contents of the template.
-     * The template is filtered so that irrelevant elements (such as the drop zone if DnD is not supported)
-     * are omitted from the DOM.  Useful errors will be thrown if the template cannot be parsed.
-     *
-     * @returns {{template: *, fileTemplate: *}} HTML for the top-level file items templates
-     */
-    function parseAndGetTemplate() {
-        var scriptEl,
-            scriptHtml,
-            fileListNode,
-            tempTemplateEl,
-            fileListHtml,
-            defaultButton,
-            dropArea,
-            thumbnail,
-            dropProcessing;
+        // During initialization of the templating module we should cache any
+        // placeholder images so we can quickly swap them into the file list on demand.
+        // Any placeholder images that cannot be loaded/found are simply ignored.
+        cacheThumbnailPlaceholders = function() {
+            var notAvailableUrl =  options.placeholders.thumbnailNotAvailable,
+                waitingUrl = options.placeholders.waitingForThumbnail,
+                spec = {
+                    maxSize: thumbnailMaxSize,
+                    scale: serverScale
+                };
 
-        log("Parsing template");
+            if (showThumbnails) {
+                if (notAvailableUrl) {
+                    options.imageGenerator.generate(notAvailableUrl, new Image(), spec).then(
+                        function(updatedImg) {
+                            cachedThumbnailNotAvailableImg.success(updatedImg);
+                        },
+                        function() {
+                            cachedThumbnailNotAvailableImg.failure();
+                            log("Problem loading 'not available' placeholder image at " + notAvailableUrl, "error");
+                        }
+                    );
+                }
+                else {
+                    cachedThumbnailNotAvailableImg.failure();
+                }
 
-        /*jshint -W116*/
-        if (options.templateIdOrEl == null) {
-            throw new Error("You MUST specify either a template element or ID!");
-        }
-
-        // Grab the contents of the script tag holding the template.
-        if (qq.isString(options.templateIdOrEl)) {
-            scriptEl = document.getElementById(options.templateIdOrEl);
-
-            if (scriptEl === null) {
-                throw new Error(qq.format("Cannot find template script at ID '{}'!", options.templateIdOrEl));
+                if (waitingUrl) {
+                    options.imageGenerator.generate(waitingUrl, new Image(), spec).then(
+                        function(updatedImg) {
+                            cachedWaitingForThumbnailImg.success(updatedImg);
+                        },
+                        function() {
+                            cachedWaitingForThumbnailImg.failure();
+                            log("Problem loading 'waiting for thumbnail' placeholder image at " + waitingUrl, "error");
+                        }
+                    );
+                }
+                else {
+                    cachedWaitingForThumbnailImg.failure();
+                }
             }
+        },
 
-            scriptHtml = scriptEl.innerHTML;
-        }
-        else {
-            if (options.templateIdOrEl.innerHTML === undefined) {
-                throw new Error("You have specified an invalid value for the template option!  " +
-                    "It must be an ID or an Element.");
-            }
+        // Displays a "waiting for thumbnail" type placeholder image
+        // iff we were able to load it during initialization of the templating module.
+        displayWaitingImg = function(thumbnail) {
+            var waitingImgPlacement = new qq.Promise();
 
-            scriptHtml = options.templateIdOrEl.innerHTML;
-        }
-
-        scriptHtml = qq.trimStr(scriptHtml);
-        tempTemplateEl = document.createElement("div");
-        tempTemplateEl.appendChild(qq.toElement(scriptHtml));
-
-        // Don't include the default template button in the DOM
-        // if an alternate button container has been specified.
-        if (options.button) {
-            defaultButton = qq(tempTemplateEl).getByClass(selectorClasses.button)[0];
-            if (defaultButton) {
-                qq(defaultButton).remove();
-            }
-        }
-
-        // Omit the drop processing element from the DOM if DnD is not supported by the UA,
-        // or the drag and drop module is not found.
-        // NOTE: We are consciously not removing the drop zone if the UA doesn't support DnD
-        // to support layouts where the drop zone is also a container for visible elements,
-        // such as the file list.
-        if (!qq.DragAndDrop || !qq.supportedFeatures.fileDrop) {
-            dropProcessing = qq(tempTemplateEl).getByClass(selectorClasses.dropProcessing)[0];
-            if (dropProcessing) {
-                qq(dropProcessing).remove();
-            }
-
-        }
-
-        dropArea = qq(tempTemplateEl).getByClass(selectorClasses.drop)[0];
-
-        // If DnD is not available then remove
-        // it from the DOM as well.
-        if (dropArea && !qq.DragAndDrop) {
-            qq.log("DnD module unavailable.", "info");
-            qq(dropArea).remove();
-        }
-
-        // If there is a drop area defined in the template, and the current UA doesn't support DnD,
-        // and the drop area is marked as "hide before enter", ensure it is hidden as the DnD module
-        // will not do this (since we will not be loading the DnD module)
-        if (dropArea && !qq.supportedFeatures.fileDrop &&
-            qq(dropArea).hasAttribute(HIDE_DROPZONE_ATTR)) {
-
-            qq(dropArea).css({
-                display: "none"
+            cachedWaitingForThumbnailImg.then(function(img) {
+                maybeScalePlaceholderViaCss(img, thumbnail);
+                /* jshint eqnull:true */
+                if (!thumbnail.src) {
+                    thumbnail.src = img.src;
+                    thumbnail.onload = function() {
+                        thumbnail.onload = null;
+                        show(thumbnail);
+                        waitingImgPlacement.success();
+                    };
+                }
+                else {
+                    waitingImgPlacement.success();
+                }
+            }, function() {
+                // In some browsers (such as IE9 and older) an img w/out a src attribute
+                // are displayed as "broken" images, so we should just hide the img tag
+                // if we aren't going to display the "waiting" placeholder.
+                hide(thumbnail);
+                waitingImgPlacement.success();
             });
-        }
 
-        // Ensure the `showThumbnails` flag is only set if the thumbnail element
-        // is present in the template AND the current UA is capable of generating client-side previews.
-        thumbnail = qq(tempTemplateEl).getByClass(selectorClasses.thumbnail)[0];
-        if (!showThumbnails) {
-            thumbnail && qq(thumbnail).remove();
-        }
-        else if (thumbnail) {
-            thumbnailMaxSize = parseInt(thumbnail.getAttribute(THUMBNAIL_MAX_SIZE_ATTR));
-            // Only enforce max size if the attr value is non-zero
-            thumbnailMaxSize = thumbnailMaxSize > 0 ? thumbnailMaxSize : null;
+            return waitingImgPlacement;
+        },
 
-            serverScale = qq(thumbnail).hasAttribute(THUMBNAIL_SERVER_SCALE_ATTR);
-        }
-        showThumbnails = showThumbnails && thumbnail;
+        generateNewPreview = function(id, blob, spec) {
+            var thumbnail = getThumbnail(id);
 
-        isEditElementsExist = qq(tempTemplateEl).getByClass(selectorClasses.editFilenameInput).length > 0;
-        isRetryElementExist = qq(tempTemplateEl).getByClass(selectorClasses.retry).length > 0;
+            log("Generating new thumbnail for " + id);
+            blob.qqThumbnailId = id;
 
-        fileListNode = qq(tempTemplateEl).getByClass(selectorClasses.list)[0];
-        /*jshint -W116*/
-        if (fileListNode == null) {
-            throw new Error("Could not find the file list container in the template!");
-        }
-
-        fileListHtml = fileListNode.innerHTML;
-        fileListNode.innerHTML = "";
-
-        log("Template parsing complete");
-
-        return {
-            template: qq.trimStr(tempTemplateEl.innerHTML),
-            fileTemplate: qq.trimStr(fileListHtml)
-        };
-    }
-
-    function getFile(id) {
-        return qq(fileList).getByClass(FILE_CLASS_PREFIX + id)[0];
-    }
-
-    function getTemplateEl(context, cssClass) {
-        return qq(context).getByClass(cssClass)[0];
-    }
-
-    function prependFile(el, index) {
-        var parentEl = fileList,
-            beforeEl = parentEl.firstChild;
-
-        if (index > 0) {
-            beforeEl = qq(parentEl).children()[index].nextSibling;
-
-        }
-
-        parentEl.insertBefore(el, beforeEl);
-    }
-
-    function getCancel(id) {
-        return getTemplateEl(getFile(id), selectorClasses.cancel);
-    }
-
-    function getPause(id) {
-        return getTemplateEl(getFile(id), selectorClasses.pause);
-    }
-
-    function getContinue(id) {
-        return getTemplateEl(getFile(id), selectorClasses.continueButton);
-    }
-
-    function getProgress(id) {
-        return getTemplateEl(getFile(id), selectorClasses.progressBarContainer) ||
-            getTemplateEl(getFile(id), selectorClasses.progressBar);
-    }
-
-    function getSpinner(id) {
-        return getTemplateEl(getFile(id), selectorClasses.spinner);
-    }
-
-    function getEditIcon(id) {
-        return getTemplateEl(getFile(id), selectorClasses.editNameIcon);
-    }
-
-    function getSize(id) {
-        return getTemplateEl(getFile(id), selectorClasses.size);
-    }
-
-    function getDelete(id) {
-        return getTemplateEl(getFile(id), selectorClasses.deleteButton);
-    }
-
-    function getRetry(id) {
-        return getTemplateEl(getFile(id), selectorClasses.retry);
-    }
-
-    function getFilename(id) {
-        return getTemplateEl(getFile(id), selectorClasses.file);
-    }
-
-    function getDropProcessing() {
-        return getTemplateEl(container, selectorClasses.dropProcessing);
-    }
-
-    function getThumbnail(id) {
-        return showThumbnails && getTemplateEl(getFile(id), selectorClasses.thumbnail);
-    }
-
-    function hide(el) {
-        el && qq(el).addClass(options.classes.hide);
-    }
-
-    function show(el) {
-        el && qq(el).removeClass(options.classes.hide);
-    }
-
-    function setProgressBarWidth(id, percent) {
-        var bar = getProgress(id);
-
-        if (bar && !qq(bar).hasClass(selectorClasses.progressBar)) {
-            bar = qq(bar).getByClass(selectorClasses.progressBar)[0];
-        }
-
-        bar && qq(bar).css({width: percent + "%"});
-    }
-
-    // During initialization of the templating module we should cache any
-    // placeholder images so we can quickly swap them into the file list on demand.
-    // Any placeholder images that cannot be loaded/found are simply ignored.
-    function cacheThumbnailPlaceholders() {
-        var notAvailableUrl =  options.placeholders.thumbnailNotAvailable,
-            waitingUrl = options.placeholders.waitingForThumbnail,
-            spec = {
-                maxSize: thumbnailMaxSize,
-                scale: serverScale
-            };
-
-        if (showThumbnails) {
-            if (notAvailableUrl) {
-                options.imageGenerator.generate(notAvailableUrl, new Image(), spec).then(
-                    function(updatedImg) {
-                        cachedThumbnailNotAvailableImg.success(updatedImg);
-                    },
-                    function() {
-                        cachedThumbnailNotAvailableImg.failure();
-                        log("Problem loading 'not available' placeholder image at " + notAvailableUrl, "error");
-                    }
-                );
-            }
-            else {
-                cachedThumbnailNotAvailableImg.failure();
-            }
-
-            if (waitingUrl) {
-                options.imageGenerator.generate(waitingUrl, new Image(), spec).then(
-                    function(updatedImg) {
-                        cachedWaitingForThumbnailImg.success(updatedImg);
-                    },
-                    function() {
-                        cachedWaitingForThumbnailImg.failure();
-                        log("Problem loading 'waiting for thumbnail' placeholder image at " + waitingUrl, "error");
-                    }
-                );
-            }
-            else {
-                cachedWaitingForThumbnailImg.failure();
-            }
-        }
-    }
-
-    // Displays a "waiting for thumbnail" type placeholder image
-    // iff we were able to load it during initialization of the templating module.
-    function displayWaitingImg(thumbnail) {
-        cachedWaitingForThumbnailImg.then(function(img) {
-            maybeScalePlaceholderViaCss(img, thumbnail);
-            /* jshint eqnull:true */
-            if (thumbnail.getAttribute("src") == null) {
-                thumbnail.src = img.src;
-                show(thumbnail);
-            }
-        }, function() {
-            // In some browsers (such as IE9 and older) an img w/out a src attribute
-            // are displayed as "broken" images, so we sohuld just hide the img tag
-            // if we aren't going to display the "waiting" placeholder.
-            hide(thumbnail);
-        });
-    }
-
-    // Displays a "thumbnail not available" type placeholder image
-    // iff we were able to load this placeholder during initialization
-    // of the templating module or after preview generation has failed.
-    function maybeSetDisplayNotAvailableImg(id, thumbnail) {
-        var previewing = previewGeneration[id] || new qq.Promise().failure();
-
-        cachedThumbnailNotAvailableImg.then(function(img) {
-            previewing.then(
+            return options.imageGenerator.generate(blob, thumbnail, spec).then(
                 function() {
-                    delete previewGeneration[id];
+                    generatedThumbnails++;
+                    show(thumbnail);
+                    previewGeneration[id].success();
                 },
                 function() {
-                    maybeScalePlaceholderViaCss(img, thumbnail);
-                    thumbnail.src = img.src;
-                    show(thumbnail);
-                    delete previewGeneration[id];
+                    previewGeneration[id].failure();
+
+                    // Display the "not available" placeholder img only if we are
+                    // not expecting a thumbnail at a later point, such as in a server response.
+                    if (!options.placeholders.waitUntilUpdate) {
+                        maybeSetDisplayNotAvailableImg(id, thumbnail);
+                    }
+                });
+        },
+
+        generateNextQueuedPreview = function() {
+            if (thumbGenerationQueue.length) {
+                thumbnailQueueMonitorRunning = true;
+
+                var queuedThumbRequest = thumbGenerationQueue.shift();
+
+                if (queuedThumbRequest.update) {
+                    processUpdateQueuedPreviewRequest(queuedThumbRequest);
                 }
-            );
-        });
-    }
+                else {
+                    processNewQueuedPreviewRequest(queuedThumbRequest);
+                }
+            }
+            else {
+                thumbnailQueueMonitorRunning = false;
+            }
+        },
 
-    // Ensures a placeholder image does not exceed any max size specified
-    // via `style` attribute properties iff <canvas> was not used to scale
-    // the placeholder AND the target <img> doesn't already have these `style` attribute properties set.
-    function maybeScalePlaceholderViaCss(placeholder, thumbnail) {
-        var maxWidth = placeholder.style.maxWidth,
-            maxHeight = placeholder.style.maxHeight;
+        getCancel = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.cancel);
+        },
 
-        if (maxHeight && maxWidth && !thumbnail.style.maxWidth && !thumbnail.style.maxHeight) {
-            qq(thumbnail).css({
-                maxWidth: maxWidth,
-                maxHeight: maxHeight
+        getContinue = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.continueButton);
+        },
+
+        getDialog = function(type) {
+            return getTemplateEl(container, selectorClasses[type + "Dialog"]);
+        },
+
+        getDelete = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.deleteButton);
+        },
+
+        getDropProcessing = function() {
+            return getTemplateEl(container, selectorClasses.dropProcessing);
+        },
+
+        getEditIcon = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.editNameIcon);
+        },
+
+        getFile = function(id) {
+            return fileBatch.map[id] || qq(fileList).getFirstByClass(FILE_CLASS_PREFIX + id);
+        },
+
+        getFilename = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.file);
+        },
+
+        getPause = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.pause);
+        },
+
+        getProgress = function(id) {
+            /* jshint eqnull:true */
+            // Total progress bar
+            if (id == null) {
+                return getTemplateEl(container, selectorClasses.totalProgressBarContainer) ||
+                    getTemplateEl(container, selectorClasses.totalProgressBar);
+            }
+
+            // Per-file progress bar
+            return getTemplateEl(getFile(id), selectorClasses.progressBarContainer) ||
+                getTemplateEl(getFile(id), selectorClasses.progressBar);
+        },
+
+        getRetry = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.retry);
+        },
+
+        getSize = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.size);
+        },
+
+        getSpinner = function(id) {
+            return getTemplateEl(getFile(id), selectorClasses.spinner);
+        },
+
+        getTemplateEl = function(context, cssClass) {
+            return context && qq(context).getFirstByClass(cssClass);
+        },
+
+        getThumbnail = function(id) {
+            return showThumbnails && getTemplateEl(getFile(id), selectorClasses.thumbnail);
+        },
+
+        hide = function(el) {
+            el && qq(el).addClass(options.classes.hide);
+        },
+
+        // Ensures a placeholder image does not exceed any max size specified
+        // via `style` attribute properties iff <canvas> was not used to scale
+        // the placeholder AND the target <img> doesn't already have these `style` attribute properties set.
+        maybeScalePlaceholderViaCss = function(placeholder, thumbnail) {
+            var maxWidth = placeholder.style.maxWidth,
+                maxHeight = placeholder.style.maxHeight;
+
+            if (maxHeight && maxWidth && !thumbnail.style.maxWidth && !thumbnail.style.maxHeight) {
+                qq(thumbnail).css({
+                    maxWidth: maxWidth,
+                    maxHeight: maxHeight
+                });
+            }
+        },
+
+        // Displays a "thumbnail not available" type placeholder image
+        // iff we were able to load this placeholder during initialization
+        // of the templating module or after preview generation has failed.
+        maybeSetDisplayNotAvailableImg = function(id, thumbnail) {
+            var previewing = previewGeneration[id] || new qq.Promise().failure(),
+                notAvailableImgPlacement = new qq.Promise();
+
+            cachedThumbnailNotAvailableImg.then(function(img) {
+                previewing.then(
+                    function() {
+                        notAvailableImgPlacement.success();
+                    },
+                    function() {
+                        maybeScalePlaceholderViaCss(img, thumbnail);
+
+                        thumbnail.onload = function() {
+                            thumbnail.onload = null;
+                            notAvailableImgPlacement.success();
+                        };
+
+                        thumbnail.src = img.src;
+                        show(thumbnail);
+                    }
+                );
             });
-        }
-    }
 
+            return notAvailableImgPlacement;
+        },
+
+        /**
+         * Grabs the HTML from the script tag holding the template markup.  This function will also adjust
+         * some internally-tracked state variables based on the contents of the template.
+         * The template is filtered so that irrelevant elements (such as the drop zone if DnD is not supported)
+         * are omitted from the DOM.  Useful errors will be thrown if the template cannot be parsed.
+         *
+         * @returns {{template: *, fileTemplate: *}} HTML for the top-level file items templates
+         */
+        parseAndGetTemplate = function() {
+            var scriptEl,
+                scriptHtml,
+                fileListNode,
+                tempTemplateEl,
+                fileListEl,
+                defaultButton,
+                dropArea,
+                thumbnail,
+                dropProcessing,
+                dropTextEl,
+                uploaderEl;
+
+            log("Parsing template");
+
+            /*jshint -W116*/
+            if (options.templateIdOrEl == null) {
+                throw new Error("You MUST specify either a template element or ID!");
+            }
+
+            // Grab the contents of the script tag holding the template.
+            if (qq.isString(options.templateIdOrEl)) {
+                scriptEl = document.getElementById(options.templateIdOrEl);
+
+                if (scriptEl === null) {
+                    throw new Error(qq.format("Cannot find template script at ID '{}'!", options.templateIdOrEl));
+                }
+
+                scriptHtml = scriptEl.innerHTML;
+            }
+            else {
+                if (options.templateIdOrEl.innerHTML === undefined) {
+                    throw new Error("You have specified an invalid value for the template option!  " +
+                        "It must be an ID or an Element.");
+                }
+
+                scriptHtml = options.templateIdOrEl.innerHTML;
+            }
+
+            scriptHtml = qq.trimStr(scriptHtml);
+            tempTemplateEl = document.createElement("div");
+            tempTemplateEl.appendChild(qq.toElement(scriptHtml));
+            uploaderEl = qq(tempTemplateEl).getFirstByClass(selectorClasses.uploader);
+
+            // Don't include the default template button in the DOM
+            // if an alternate button container has been specified.
+            if (options.button) {
+                defaultButton = qq(tempTemplateEl).getFirstByClass(selectorClasses.button);
+                if (defaultButton) {
+                    qq(defaultButton).remove();
+                }
+            }
+
+            // Omit the drop processing element from the DOM if DnD is not supported by the UA,
+            // or the drag and drop module is not found.
+            // NOTE: We are consciously not removing the drop zone if the UA doesn't support DnD
+            // to support layouts where the drop zone is also a container for visible elements,
+            // such as the file list.
+            if (!qq.DragAndDrop || !qq.supportedFeatures.fileDrop) {
+                dropProcessing = qq(tempTemplateEl).getFirstByClass(selectorClasses.dropProcessing);
+                if (dropProcessing) {
+                    qq(dropProcessing).remove();
+                }
+            }
+
+            dropArea = qq(tempTemplateEl).getFirstByClass(selectorClasses.drop);
+
+            // If DnD is not available then remove
+            // it from the DOM as well.
+            if (dropArea && !qq.DragAndDrop) {
+                log("DnD module unavailable.", "info");
+                qq(dropArea).remove();
+            }
+
+            if (!qq.supportedFeatures.fileDrop) {
+                // don't display any "drop files to upload" background text
+                uploaderEl.removeAttribute(DROPZPONE_TEXT_ATTR);
+
+                if (dropArea && qq(dropArea).hasAttribute(HIDE_DROPZONE_ATTR)) {
+                    // If there is a drop area defined in the template, and the current UA doesn't support DnD,
+                    // and the drop area is marked as "hide before enter", ensure it is hidden as the DnD module
+                    // will not do this (since we will not be loading the DnD module)
+                    qq(dropArea).css({
+                        display: "none"
+                    });
+                }
+            }
+            else if (qq(uploaderEl).hasAttribute(DROPZPONE_TEXT_ATTR) && dropArea) {
+                dropTextEl = qq(dropArea).getFirstByClass(selectorClasses.dropText);
+                dropTextEl && qq(dropTextEl).remove();
+            }
+
+            // Ensure the `showThumbnails` flag is only set if the thumbnail element
+            // is present in the template AND the current UA is capable of generating client-side previews.
+            thumbnail = qq(tempTemplateEl).getFirstByClass(selectorClasses.thumbnail);
+            if (!showThumbnails) {
+                thumbnail && qq(thumbnail).remove();
+            }
+            else if (thumbnail) {
+                thumbnailMaxSize = parseInt(thumbnail.getAttribute(THUMBNAIL_MAX_SIZE_ATTR));
+                // Only enforce max size if the attr value is non-zero
+                thumbnailMaxSize = thumbnailMaxSize > 0 ? thumbnailMaxSize : null;
+
+                serverScale = qq(thumbnail).hasAttribute(THUMBNAIL_SERVER_SCALE_ATTR);
+            }
+            showThumbnails = showThumbnails && thumbnail;
+
+            isEditElementsExist = qq(tempTemplateEl).getByClass(selectorClasses.editFilenameInput).length > 0;
+            isRetryElementExist = qq(tempTemplateEl).getByClass(selectorClasses.retry).length > 0;
+
+            fileListNode = qq(tempTemplateEl).getFirstByClass(selectorClasses.list);
+            /*jshint -W116*/
+            if (fileListNode == null) {
+                throw new Error("Could not find the file list container in the template!");
+            }
+
+            fileListEl = fileListNode.children[0].cloneNode(true);
+            fileListNode.innerHTML = "";
+
+            // We must call `createElement` in IE8 in order to target and hide any <dialog> via CSS
+            if (tempTemplateEl.getElementsByTagName("DIALOG").length) {
+                document.createElement("dialog");
+            }
+
+            log("Template parsing complete");
+
+            return {
+                template: tempTemplateEl,
+                fileTemplate: fileListEl
+            };
+        },
+
+        prependFile = function(el, index, fileList) {
+            var parentEl = fileList,
+                beforeEl = parentEl.firstChild;
+
+            if (index > 0) {
+                beforeEl = qq(parentEl).children()[index].nextSibling;
+
+            }
+
+            parentEl.insertBefore(el, beforeEl);
+        },
+
+        processNewQueuedPreviewRequest = function(queuedThumbRequest) {
+            var id = queuedThumbRequest.id,
+                optFileOrBlob = queuedThumbRequest.optFileOrBlob,
+                relatedThumbnailId = optFileOrBlob && optFileOrBlob.qqThumbnailId,
+                thumbnail = getThumbnail(id),
+                spec = {
+                    customResizeFunction: queuedThumbRequest.customResizeFunction,
+                    maxSize: thumbnailMaxSize,
+                    orient: true,
+                    scale: true
+                };
+
+            if (qq.supportedFeatures.imagePreviews) {
+                if (thumbnail) {
+                    if (options.limits.maxThumbs && options.limits.maxThumbs <= generatedThumbnails) {
+                        maybeSetDisplayNotAvailableImg(id, thumbnail);
+                        generateNextQueuedPreview();
+                    }
+                    else {
+                        displayWaitingImg(thumbnail).done(function() {
+                            previewGeneration[id] = new qq.Promise();
+
+                            previewGeneration[id].done(function() {
+                                setTimeout(generateNextQueuedPreview, options.limits.timeBetweenThumbs);
+                            });
+
+                            /* jshint eqnull: true */
+                            // If we've already generated an <img> for this file, use the one that exists,
+                            // don't waste resources generating a new one.
+                            if (relatedThumbnailId != null) {
+                                useCachedPreview(id, relatedThumbnailId);
+                            }
+                            else {
+                                generateNewPreview(id, optFileOrBlob, spec);
+                            }
+                        });
+                    }
+                }
+                // File element in template may have been removed, so move on to next item in queue
+                else {
+                    generateNextQueuedPreview();
+                }
+            }
+            else if (thumbnail) {
+                displayWaitingImg(thumbnail);
+                generateNextQueuedPreview();
+            }
+        },
+
+        processUpdateQueuedPreviewRequest = function(queuedThumbRequest) {
+            var id = queuedThumbRequest.id,
+                thumbnailUrl = queuedThumbRequest.thumbnailUrl,
+                showWaitingImg = queuedThumbRequest.showWaitingImg,
+                thumbnail = getThumbnail(id),
+                spec = {
+                    customResizeFunction: queuedThumbRequest.customResizeFunction,
+                    scale: serverScale,
+                    maxSize: thumbnailMaxSize
+                };
+
+            if (thumbnail) {
+                if (thumbnailUrl) {
+                    if (options.limits.maxThumbs && options.limits.maxThumbs <= generatedThumbnails) {
+                        maybeSetDisplayNotAvailableImg(id, thumbnail);
+                        generateNextQueuedPreview();
+                    }
+                    else {
+                        if (showWaitingImg) {
+                            displayWaitingImg(thumbnail);
+                        }
+
+                        return options.imageGenerator.generate(thumbnailUrl, thumbnail, spec).then(
+                            function() {
+                                show(thumbnail);
+                                generatedThumbnails++;
+                                setTimeout(generateNextQueuedPreview, options.limits.timeBetweenThumbs);
+                            },
+
+                            function() {
+                                maybeSetDisplayNotAvailableImg(id, thumbnail);
+                                setTimeout(generateNextQueuedPreview, options.limits.timeBetweenThumbs);
+                            }
+                        );
+                    }
+                }
+                else {
+                    maybeSetDisplayNotAvailableImg(id, thumbnail);
+                    generateNextQueuedPreview();
+                }
+            }
+        },
+
+        setProgressBarWidth = function(id, percent) {
+            var bar = getProgress(id),
+                /* jshint eqnull:true */
+                progressBarSelector = id == null ? selectorClasses.totalProgressBar : selectorClasses.progressBar;
+
+            if (bar && !qq(bar).hasClass(progressBarSelector)) {
+                bar = qq(bar).getFirstByClass(progressBarSelector);
+            }
+
+            if (bar) {
+                qq(bar).css({width: percent + "%"});
+                bar.setAttribute("aria-valuenow", percent);
+            }
+        },
+
+        show = function(el) {
+            el && qq(el).removeClass(options.classes.hide);
+        },
+
+        useCachedPreview = function(targetThumbnailId, cachedThumbnailId) {
+            var targetThumbnail = getThumbnail(targetThumbnailId),
+                cachedThumbnail = getThumbnail(cachedThumbnailId);
+
+            log(qq.format("ID {} is the same file as ID {}.  Will use generated thumbnail from ID {} instead.", targetThumbnailId, cachedThumbnailId, cachedThumbnailId));
+
+            // Generation of the related thumbnail may still be in progress, so, wait until it is done.
+            previewGeneration[cachedThumbnailId].then(function() {
+                generatedThumbnails++;
+                previewGeneration[targetThumbnailId].success();
+                log(qq.format("Now using previously generated thumbnail created for ID {} on ID {}.", cachedThumbnailId, targetThumbnailId));
+                targetThumbnail.src = cachedThumbnail.src;
+                show(targetThumbnail);
+            },
+            function() {
+                previewGeneration[targetThumbnailId].failure();
+                if (!options.placeholders.waitUntilUpdate) {
+                    maybeSetDisplayNotAvailableImg(targetThumbnailId, targetThumbnail);
+                }
+            });
+        };
 
     qq.extend(options, spec);
     log = options.log;
 
+    // No need to worry about conserving CPU or memory on older browsers,
+    // since there is no ability to preview, and thumbnail display is primitive and quick.
+    if (!qq.supportedFeatures.imagePreviews) {
+        options.limits.timeBetweenThumbs = 0;
+        options.limits.maxThumbs = 0;
+    }
+
     container = options.containerEl;
     showThumbnails = options.imageGenerator !== undefined;
-    templateHtml = parseAndGetTemplate();
+    templateDom = parseAndGetTemplate();
 
     cacheThumbnailPlaceholders();
 
@@ -397,8 +633,11 @@ qq.Templating = function(spec) {
         render: function() {
             log("Rendering template in DOM.");
 
-            container.innerHTML = templateHtml.template;
+            generatedThumbnails = 0;
+
+            container.appendChild(templateDom.template.cloneNode(true));
             hide(getDropProcessing());
+            this.hideTotalProgress();
             fileList = options.fileContainerEl || getTemplateEl(container, selectorClasses.list);
 
             log("Template rendering complete");
@@ -411,6 +650,7 @@ qq.Templating = function(spec) {
         },
 
         reset: function() {
+            container.innerHTML = "";
             this.render();
         },
 
@@ -422,31 +662,75 @@ qq.Templating = function(spec) {
             isCancelDisabled = true;
         },
 
-        addFile: function(id, name, prependInfo) {
-            var fileEl = qq.toElement(templateHtml.fileTemplate),
-                fileNameEl = getTemplateEl(fileEl, selectorClasses.file);
+        addFile: function(id, name, prependInfo, hideForever, batch) {
+            var fileEl = templateDom.fileTemplate.cloneNode(true),
+                fileNameEl = getTemplateEl(fileEl, selectorClasses.file),
+                uploaderEl = getTemplateEl(container, selectorClasses.uploader),
+                fileContainer = batch ? fileBatch.content : fileList,
+                thumb;
+
+            if (batch) {
+                fileBatch.map[id] = fileEl;
+            }
 
             qq(fileEl).addClass(FILE_CLASS_PREFIX + id);
-            fileNameEl && qq(fileNameEl).setText(name);
+            uploaderEl.removeAttribute(DROPZPONE_TEXT_ATTR);
+
+            if (fileNameEl) {
+                qq(fileNameEl).setText(name);
+                fileNameEl.setAttribute("title", name);
+            }
+
             fileEl.setAttribute(FILE_ID_ATTR, id);
 
             if (prependInfo) {
-                prependFile(fileEl, prependInfo.index);
+                prependFile(fileEl, prependInfo.index, fileContainer);
             }
             else {
-                fileList.appendChild(fileEl);
+                fileContainer.appendChild(fileEl);
             }
 
-            hide(getProgress(id));
-            hide(getSize(id));
-            hide(getDelete(id));
-            hide(getRetry(id));
-            hide(getPause(id));
-            hide(getContinue(id));
-
-            if (isCancelDisabled) {
-                this.hideCancel(id);
+            if (hideForever) {
+                fileEl.style.display = "none";
+                qq(fileEl).addClass(HIDDEN_FOREVER_CLASS);
             }
+            else {
+                hide(getProgress(id));
+                hide(getSize(id));
+                hide(getDelete(id));
+                hide(getRetry(id));
+                hide(getPause(id));
+                hide(getContinue(id));
+
+                if (isCancelDisabled) {
+                    this.hideCancel(id);
+                }
+
+                thumb = getThumbnail(id);
+                if (thumb && !thumb.src) {
+                    cachedWaitingForThumbnailImg.then(function(waitingImg) {
+                        thumb.src = waitingImg.src;
+                        if (waitingImg.style.maxHeight && waitingImg.style.maxWidth) {
+                            qq(thumb).css({
+                                maxHeight: waitingImg.style.maxHeight,
+                                maxWidth: waitingImg.style.maxWidth
+                            });
+                        }
+
+                        show(thumb);
+                    });
+                }
+            }
+        },
+
+        addFileToCache: function(id, name, prependInfo, hideForever) {
+            this.addFile(id, name, prependInfo, hideForever, true);
+        },
+
+        addCacheToDom: function() {
+            fileList.appendChild(fileBatch.content);
+            fileBatch.content = document.createDocumentFragment();
+            fileBatch.map = {};
         },
 
         removeFile: function(id) {
@@ -477,9 +761,12 @@ qq.Templating = function(spec) {
         },
 
         updateFilename: function(id, name) {
-            var filename = getFilename(id);
+            var filenameEl = getFilename(id);
 
-            filename && qq(filename).setText(name);
+            if (filenameEl) {
+                qq(filenameEl).setText(name);
+                filenameEl.setAttribute("title", name);
+            }
         },
 
         hideFilename: function(id) {
@@ -514,8 +801,16 @@ qq.Templating = function(spec) {
             return isEditElementsExist;
         },
 
+        hideRetry: function(id) {
+            hide(getRetry(id));
+        },
+
         isRetryPossible: function() {
             return isRetryElementExist;
+        },
+
+        showRetry: function(id) {
+            show(getRetry(id));
         },
 
         getFileContainer: function(id) {
@@ -528,6 +823,10 @@ qq.Templating = function(spec) {
             icon && qq(icon).addClass(options.classes.editable);
         },
 
+        isHiddenForever: function(id) {
+            return qq(getFile(id)).hasClass(HIDDEN_FOREVER_CLASS);
+        },
+
         hideEditIcon: function(id) {
             var icon = getEditIcon(id);
 
@@ -535,7 +834,7 @@ qq.Templating = function(spec) {
         },
 
         isEditIcon: function(el) {
-            return qq(el).hasClass(selectorClasses.editNameIcon);
+            return qq(el).hasClass(selectorClasses.editNameIcon, true);
         },
 
         getEditInput: function(id) {
@@ -543,17 +842,17 @@ qq.Templating = function(spec) {
         },
 
         isEditInput: function(el) {
-            return qq(el).hasClass(selectorClasses.editFilenameInput);
+            return qq(el).hasClass(selectorClasses.editFilenameInput, true);
         },
 
         updateProgress: function(id, loaded, total) {
             var bar = getProgress(id),
                 percent;
 
-            if (bar) {
+            if (bar && total > 0) {
                 percent = Math.round(loaded / total * 100);
 
-                if (loaded === total) {
+                if (percent === 100) {
                     hide(bar);
                 }
                 else {
@@ -564,14 +863,27 @@ qq.Templating = function(spec) {
             }
         },
 
+        updateTotalProgress: function(loaded, total) {
+            this.updateProgress(null, loaded, total);
+        },
+
         hideProgress: function(id) {
             var bar = getProgress(id);
 
             bar && hide(bar);
         },
 
+        hideTotalProgress: function() {
+            this.hideProgress();
+        },
+
         resetProgress: function(id) {
             setProgressBarWidth(id, 0);
+            this.hideTotalProgress(id);
+        },
+
+        resetTotalProgress: function() {
+            this.resetProgress();
         },
 
         showCancel: function(id) {
@@ -587,7 +899,7 @@ qq.Templating = function(spec) {
         },
 
         isCancel: function(el)  {
-            return qq(el).hasClass(selectorClasses.cancel);
+            return qq(el).hasClass(selectorClasses.cancel, true);
         },
 
         allowPause: function(id) {
@@ -606,11 +918,11 @@ qq.Templating = function(spec) {
         },
 
         isPause: function(el) {
-            return qq(el).hasClass(selectorClasses.pause);
+            return qq(el).hasClass(selectorClasses.pause, true);
         },
 
         isContinueButton: function(el) {
-            return qq(el).hasClass(selectorClasses.continueButton);
+            return qq(el).hasClass(selectorClasses.continueButton, true);
         },
 
         allowContinueButton: function(id) {
@@ -633,11 +945,11 @@ qq.Templating = function(spec) {
         },
 
         isDeleteButton: function(el) {
-            return qq(el).hasClass(selectorClasses.deleteButton);
+            return qq(el).hasClass(selectorClasses.deleteButton, true);
         },
 
         isRetry: function(el) {
-            return qq(el).hasClass(selectorClasses.retry);
+            return qq(el).hasClass(selectorClasses.retry, true);
         },
 
         updateSize: function(id, text) {
@@ -664,73 +976,72 @@ qq.Templating = function(spec) {
         },
 
         hideSpinner: function(id) {
+            qq(getFile(id)).removeClass(IN_PROGRESS_CLASS);
             hide(getSpinner(id));
         },
 
         showSpinner: function(id) {
+            qq(getFile(id)).addClass(IN_PROGRESS_CLASS);
             show(getSpinner(id));
         },
 
-        generatePreview: function(id, fileOrBlob) {
-            var thumbnail = getThumbnail(id),
-                spec = {
-                    maxSize: thumbnailMaxSize,
-                    scale: true,
-                    orient: true
-                };
-
-            if (qq.supportedFeatures.imagePreviews) {
-                previewGeneration[id] = new qq.Promise();
-
-                if (thumbnail) {
-                    displayWaitingImg(thumbnail);
-                    return options.imageGenerator.generate(fileOrBlob, thumbnail, spec).then(
-                        function() {
-                            show(thumbnail);
-                            previewGeneration[id].success();
-                        },
-                        function() {
-                            previewGeneration[id].failure();
-
-                            // Display the "not available" placeholder img only if we are
-                            // not expecting a thumbnail at a later point, such as in a server response.
-                            if (!options.placeholders.waitUntilUpdate) {
-                                maybeSetDisplayNotAvailableImg(id, thumbnail);
-                            }
-                        });
-                }
-            }
-            else if (thumbnail) {
-                displayWaitingImg(thumbnail);
+        generatePreview: function(id, optFileOrBlob, customResizeFunction) {
+            if (!this.isHiddenForever(id)) {
+                thumbGenerationQueue.push({id: id, customResizeFunction: customResizeFunction, optFileOrBlob: optFileOrBlob});
+                !thumbnailQueueMonitorRunning && generateNextQueuedPreview();
             }
         },
 
-        updateThumbnail: function(id, thumbnailUrl, showWaitingImg) {
-            var thumbnail = getThumbnail(id),
-                spec = {
-                    maxSize: thumbnailMaxSize,
-                    scale: serverScale
+        updateThumbnail: function(id, thumbnailUrl, showWaitingImg, customResizeFunction) {
+            if (!this.isHiddenForever(id)) {
+                thumbGenerationQueue.push({customResizeFunction: customResizeFunction, update: true, id: id, thumbnailUrl: thumbnailUrl, showWaitingImg: showWaitingImg});
+                !thumbnailQueueMonitorRunning && generateNextQueuedPreview();
+            }
+        },
+
+        hasDialog: function(type) {
+            return qq.supportedFeatures.dialogElement && !!getDialog(type);
+        },
+
+        showDialog: function(type, message, defaultValue) {
+            var dialog = getDialog(type),
+                messageEl = getTemplateEl(dialog, selectorClasses.dialogMessage),
+                inputEl = dialog.getElementsByTagName("INPUT")[0],
+                cancelBtn = getTemplateEl(dialog, selectorClasses.dialogCancelButton),
+                okBtn = getTemplateEl(dialog, selectorClasses.dialogOkButton),
+                promise = new qq.Promise(),
+
+                closeHandler = function() {
+                    cancelBtn.removeEventListener("click", cancelClickHandler);
+                    okBtn && okBtn.removeEventListener("click", okClickHandler);
+                    promise.failure();
+                },
+
+                cancelClickHandler = function() {
+                    cancelBtn.removeEventListener("click", cancelClickHandler);
+                    dialog.close();
+                },
+
+                okClickHandler = function() {
+                    dialog.removeEventListener("close", closeHandler);
+                    okBtn.removeEventListener("click", okClickHandler);
+                    dialog.close();
+
+                    promise.success(inputEl && inputEl.value);
                 };
 
-            if (thumbnail) {
-                if (thumbnailUrl) {
-                    if (showWaitingImg) {
-                        displayWaitingImg(thumbnail);
-                    }
+            dialog.addEventListener("close", closeHandler);
+            cancelBtn.addEventListener("click", cancelClickHandler);
+            okBtn && okBtn.addEventListener("click", okClickHandler);
 
-                    return options.imageGenerator.generate(thumbnailUrl, thumbnail, spec).then(
-                        function() {
-                            show(thumbnail);
-                        },
-                        function() {
-                            maybeSetDisplayNotAvailableImg(id, thumbnail);
-                        }
-                    );
-                }
-                else {
-                    maybeSetDisplayNotAvailableImg(id, thumbnail);
-                }
+            if (inputEl) {
+                inputEl.value = defaultValue;
             }
+            messageEl.textContent = message;
+
+            dialog.showModal();
+
+            return promise;
         }
     });
 };
